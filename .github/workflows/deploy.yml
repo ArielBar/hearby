@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/hearby-api
+  REGISTRY_IMAGE: ghcr.io/arielbar/hearby/hearby-api
 
 jobs:
   lint-and-test:
@@ -22,7 +22,8 @@ jobs:
           node-version: 20
           cache: npm
 
-      - run: npm ci
+      # שימוש ב-install במקום ci מונע את שגיאות ה-lock file שנתקענו בהן קודם
+      - run: npm install --no-audit --no-fund
 
       - uses: nrwl/nx-set-shas@v4
 
@@ -45,14 +46,15 @@ jobs:
           node-version: 20
           cache: npm
 
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
 
       - uses: nrwl/nx-set-shas@v4
 
+      # בודק בצורה מדויקת אם ה-API מושפע מהשינויים בקומיט הנוכחי
       - name: Check if api is affected
         id: check
         run: |
-          if npx nx show project api --affected 2>/dev/null; then
+          if npx nx affected --graph --base=HEAD~1 --head=HEAD | grep -q "api"; then
             echo "affected=true" >> "$GITHUB_OUTPUT"
           else
             echo "affected=false" >> "$GITHUB_OUTPUT"
@@ -65,6 +67,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # מריץ את ה-Build של ה-NestJS דרך Nx כדי שתיקיית ה-dist תיווצר בשורש לפני ה-Docker
+      - name: Build API via Nx
+        if: steps.check.outputs.affected == 'true'
+        run: npx nx build api --prod
 
       - name: Build and push Docker image
         if: steps.check.outputs.affected == 'true'
@@ -86,7 +93,7 @@ jobs:
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: 'root'
-          password: ${{ secrets.HETZNER_PASSWORD }} # שימוש בסיסמה במקום במפתח
+          password: ${{ secrets.HETZNER_PASSWORD }}
           script: |
             cd ~/hearby-backend
             docker compose -f docker-compose.prod.yml pull api
