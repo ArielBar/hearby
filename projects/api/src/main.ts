@@ -16,6 +16,7 @@ async function bootstrap() {
   Logger.log(
     `🚀 Application is running on: http://localhost:${port}/${globalPrefix}`,
   );
+  console.log('Hearby API running on port 3000');
 }
 
 bootstrap();
