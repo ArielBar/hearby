@@ -14,6 +14,19 @@ export interface OfflinePoiDto {
   description: string;
 }
 
+export interface PaginatedResult<T> {
+  data: T[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasNextPage: boolean;
+  };
+}
+
+export type PoiWithDistance = PointOfInterest & { distanceInMeters: number };
+
 @Injectable()
 export class PoisService {
   constructor(
@@ -74,5 +87,55 @@ export class PoisService {
       .getRawMany<OfflinePoiDto>();
 
     return pois;
+  }
+
+  async findNearby(
+    lat: number,
+    lng: number,
+    radiusInMeters: number,
+    page: number,
+    limit: number,
+  ): Promise<PaginatedResult<PoiWithDistance>> {
+    const offset = (page - 1) * limit;
+    const origin = `ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography`;
+
+    // Base query builder with spatial filter (leverages GIST index)
+    const baseQb = this.poisRepository
+      .createQueryBuilder('poi')
+      .where(`ST_DWithin(poi.coordinates, ${origin}, :radius)`)
+      .setParameters({ lat, lng, radius: radiusInMeters });
+
+    // Count total matching POIs (efficient – reuses the GIST index)
+    const total = await baseQb.getCount();
+
+    // Fetch paginated results with distance calculation
+    const { raw, entities } = await this.poisRepository
+      .createQueryBuilder('poi')
+      .addSelect(`ST_Distance(poi.coordinates, ${origin})`, 'distance')
+      .where(`ST_DWithin(poi.coordinates, ${origin}, :radius)`)
+      .setParameters({ lat, lng, radius: radiusInMeters })
+      .orderBy('distance', 'ASC')
+      .offset(offset)
+      .limit(limit)
+      .getRawAndEntities();
+
+    // Merge computed distance onto each entity
+    const data: PoiWithDistance[] = entities.map((entity, index) => ({
+      ...entity,
+      distanceInMeters: parseFloat(raw[index]?.distance) || 0,
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+      },
+    };
   }
 }
