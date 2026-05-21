@@ -27,6 +27,7 @@
     "@swc/cli": "~0.8.0",
     "@swc/core": "~1.15.5",
     "@swc/helpers": "~0.5.18",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "20.19.9",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.6",

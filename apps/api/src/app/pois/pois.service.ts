@@ -30,16 +30,16 @@ export class PoisService {
         'poi.id',
         'poi.name',
         'poi.city',
-        'poi.geometry',
+        'poi.coordinates',
         'poi.description',
         'poi.language',
       ])
       .addSelect(
-        `ST_DistanceSphere(poi.geometry, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326))`,
+        `ST_Distance(poi.coordinates, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography)`,
         'distance',
       )
       .where(
-        `ST_DistanceSphere(poi.geometry, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)) <= :radius`,
+        `ST_DWithin(poi.coordinates, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius)`,
       )
       .andWhere('poi.language = :lang')
       .setParameters({ lat, lng, radius, lang })
@@ -50,8 +50,8 @@ export class PoisService {
       id: poi.id,
       name: poi.name,
       city: poi.city,
-      latitude: poi.geometry.coordinates[1],
-      longitude: poi.geometry.coordinates[0],
+      latitude: poi.coordinates.coordinates[1],
+      longitude: poi.coordinates.coordinates[0],
       description: poi.description,
       language: poi.language,
     }));
@@ -65,8 +65,8 @@ export class PoisService {
       .select([
         'poi.id AS id',
         'poi.name AS name',
-        'ST_Y(poi.geometry::geometry) AS latitude',
-        'ST_X(poi.geometry::geometry) AS longitude',
+        'ST_Y(poi.coordinates::geometry) AS latitude',
+        'ST_X(poi.coordinates::geometry) AS longitude',
         'poi.description AS description',
       ])
       .where('poi.city = :city', { city: city.toLowerCase() })
