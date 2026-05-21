@@ -1,0 +1,13 @@
+{
+  "name": "@hearby/source",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {},
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "@nx/js": "22.7.2",
+    "@nx/workspace": "22.7.2",
+    "nx": "22.7.2"
+  }
+}
