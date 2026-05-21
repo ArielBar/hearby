@@ -81,12 +81,12 @@ jobs:
     needs: build-and-push
     if: needs.build-and-push.outputs.api-affected == 'true'
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Deploy to Hetzner via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HETZNER_HOST }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
+          username: 'root'
+          password: ${{ secrets.HETZNER_PASSWORD }} # שימוש בסיסמה במקום במפתח
           script: |
             cd ~/hearby-backend
             docker compose -f docker-compose.prod.yml pull api
