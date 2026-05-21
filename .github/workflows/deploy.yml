@@ -6,7 +6,11 @@ on:
       - main
 
 env:
-  REGISTRY_IMAGE: ghcr.io/arielbar/hearby/hearby-api
+  REGISTRY_IMAGE: ghcr.io/arielbar/hearby-api
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   lint-and-test:
@@ -82,7 +86,7 @@ jobs:
           context: .
           file: apps/api/production.Dockerfile
           push: true
-          tags: ghcr.io/arielbar/hearby/hearby-api:latest
+          tags: ghcr.io/arielbar/hearby-api:latest
 
   deploy:
     name: Deploy to Hetzner
