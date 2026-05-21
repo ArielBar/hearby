@@ -50,11 +50,11 @@ jobs:
 
       - uses: nrwl/nx-set-shas@v4
 
-      # בודק בצורה מדויקת אם ה-API מושפע מהשינויים בקומיט הנוכחי
       - name: Check if api is affected
         id: check
         run: |
-          if npx nx affected --graph --base=HEAD~1 --head=HEAD | grep -q "api"; then
+          AFFECTED=$(npx nx show projects --affected --plain)
+          if echo "$AFFECTED" | grep -qw "api"; then
             echo "affected=true" >> "$GITHUB_OUTPUT"
           else
             echo "affected=false" >> "$GITHUB_OUTPUT"
