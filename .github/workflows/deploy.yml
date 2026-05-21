@@ -1,0 +1,94 @@
+name: Deploy Hearby
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/hearby-api
+
+jobs:
+  lint-and-test:
+    name: Lint & Test (Affected)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - uses: nrwl/nx-set-shas@v4
+
+      - run: npx nx affected:lint
+      - run: npx nx affected:test
+
+  build-and-push:
+    name: Build & Push Backend Image
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    outputs:
+      api-affected: ${{ steps.check.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - uses: nrwl/nx-set-shas@v4
+
+      - name: Check if api is affected
+        id: check
+        run: |
+          if npx nx show project api --affected 2>/dev/null; then
+            echo "affected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "affected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        if: steps.check.outputs.affected == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        if: steps.check.outputs.affected == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/api/production.Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: needs.build-and-push.outputs.api-affected == 'true'
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd ~/hearby-backend
+            docker compose -f docker-compose.prod.yml pull api
+            docker compose -f docker-compose.prod.yml up -d api
+            docker image prune -f
