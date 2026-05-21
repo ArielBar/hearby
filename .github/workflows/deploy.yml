@@ -53,12 +53,14 @@ jobs:
       - name: Check if api is affected
         id: check
         run: |
-          AFFECTED=$(npx nx show projects --affected --plain)
-          if echo "$AFFECTED" | grep -qw "api"; then
+          set -x
+          npx nx show projects --affected | tee /tmp/affected.txt
+          if grep -q "^api$" /tmp/affected.txt; then
             echo "affected=true" >> "$GITHUB_OUTPUT"
           else
             echo "affected=false" >> "$GITHUB_OUTPUT"
           fi
+          cat "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         if: steps.check.outputs.affected == 'true'
