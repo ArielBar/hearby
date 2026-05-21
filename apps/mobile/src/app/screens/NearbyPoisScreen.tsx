@@ -1,14 +1,29 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import MapView, { Marker, Region } from 'react-native-maps';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchNearbyPois, PoiWithDistance } from '../api/pois.api';
 import { useLocation } from '../hooks/useLocation';
+
+const LATITUDE_DELTA = 0.02;
+const LONGITUDE_DELTA = 0.02;
+
+function ListEmpty() {
+  return (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyText}>
+        לא נמצאו נקודות עניין באזור זה.{'\n'}נסה לרענן או להגדיל את הרדיוס.
+      </Text>
+    </View>
+  );
+}
 
 export function NearbyPoisScreen() {
   const { location, error: locationError, loading: locationLoading } = useLocation();
@@ -20,6 +35,8 @@ export function NearbyPoisScreen() {
     isFetchingNextPage,
     isLoading,
     isError,
+    isRefetching,
+    refetch,
   } = useInfiniteQuery({
     queryKey: ['pois', location?.lat, location?.lng],
     queryFn: ({ pageParam = 1 }) =>
@@ -30,13 +47,33 @@ export function NearbyPoisScreen() {
     initialPageParam: 1,
   });
 
-  const pois = data?.pages.flatMap((page) => page.data) ?? [];
+  const pois = useMemo(
+    () => data?.pages.flatMap((page) => page.data) ?? [],
+    [data],
+  );
+
+  const region: Region | undefined = useMemo(
+    () =>
+      location
+        ? {
+            latitude: location.lat,
+            longitude: location.lng,
+            latitudeDelta: LATITUDE_DELTA,
+            longitudeDelta: LONGITUDE_DELTA,
+          }
+        : undefined,
+    [location],
+  );
 
   const handleEndReached = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+  }, [refetch]);
 
   const renderItem = useCallback(
     ({ item }: { item: PoiWithDistance }) => (
@@ -59,6 +96,7 @@ export function NearbyPoisScreen() {
     );
   }, [isFetchingNextPage]);
 
+  // Full-screen spinner only for initial load
   if (locationLoading || isLoading) {
     return (
       <View style={styles.center}>
@@ -79,15 +117,51 @@ export function NearbyPoisScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={pois}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={renderFooter}
-        contentContainerStyle={styles.list}
-      />
+      {/* Map — top 40% */}
+      <View style={styles.mapContainer}>
+        <MapView
+          style={styles.map}
+          initialRegion={region}
+          showsUserLocation
+          showsCompass
+          showsMyLocationButton
+        >
+          {pois.map((poi) => (
+            <Marker
+              key={poi.id}
+              coordinate={{
+                latitude: poi.coordinates.coordinates[1],
+                longitude: poi.coordinates.coordinates[0],
+              }}
+              title={poi.name}
+              description={`${(poi.distanceInMeters / 1000).toFixed(1)} km away`}
+              pinColor="#6366f1"
+            />
+          ))}
+        </MapView>
+      </View>
+
+      {/* List — bottom 60% */}
+      <View style={styles.listContainer}>
+        <FlatList
+          data={pois}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={ListEmpty}
+          contentContainerStyle={pois.length === 0 ? styles.listEmpty : styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={handleRefresh}
+              tintColor="#6366f1"
+              colors={['#6366f1']}
+            />
+          }
+        />
+      </View>
     </View>
   );
 }
@@ -102,8 +176,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  mapContainer: {
+    flex: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  listContainer: {
+    flex: 6,
+  },
   list: {
     padding: 16,
+  },
+  listEmpty: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyText: {
+    fontSize: 15,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 24,
   },
   card: {
     backgroundColor: '#ffffff',

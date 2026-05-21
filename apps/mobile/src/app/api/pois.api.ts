@@ -1,10 +1,16 @@
 const BASE_URL = 'http://localhost:3000'; // TODO: replace with env config
 
+export interface GeoJsonPoint {
+  type: 'Point';
+  coordinates: [number, number]; // [longitude, latitude]
+}
+
 export interface PoiWithDistance {
   id: string;
   name: string;
   city: string;
   description: string;
+  coordinates: GeoJsonPoint;
   distanceInMeters: number;
 }
 
