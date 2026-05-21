@@ -73,7 +73,7 @@ jobs:
           context: .
           file: apps/api/production.Dockerfile
           push: true
-          tags: ${{ env.IMAGE_NAME }}:latest
+          tags: ghcr.io/arielbar/hearby/hearby-api:latest
 
   deploy:
     name: Deploy to Hetzner
