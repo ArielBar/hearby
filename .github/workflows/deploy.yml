@@ -102,6 +102,6 @@ jobs:
           password: ${{ secrets.HETZNER_PASSWORD }}
           script: |
             cd ~/hearby-backend
-            docker compose -f docker-compose.prod.yml pull api
-            docker compose -f docker-compose.prod.yml up -d api
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
             docker image prune -f
