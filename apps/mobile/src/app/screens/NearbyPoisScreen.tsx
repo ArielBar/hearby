@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
+  NativeEventEmitter,
+  NativeModules,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,8 +14,12 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker, Polyline, Region } from 'react-native-maps';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+
+const { HearbyTts } = NativeModules;
+const ttsEmitter = new NativeEventEmitter(HearbyTts);
 import { fetchNearbyPois, PoiWithDistance } from '../api/pois.api';
+import { fetchWikipediaSummary } from '../api/wikipedia.api';
 import { useLocation } from '../hooks/useLocation';
 import { MapIcon } from '../components/icons/MapIcon';
 import { ListIcon } from '../components/icons/ListIcon';
@@ -20,6 +27,8 @@ import { AppSplashScreen } from '../components/AppSplashScreen';
 import { NavigationIcon } from '../components/icons/NavigationIcon';
 import { NavArrowIcon } from '../components/icons/NavArrowIcon';
 import { SearchIcon } from '../components/icons/SearchIcon';
+import { VolumeIcon } from '../components/icons/VolumeIcon';
+import { PlayPauseIcon } from '../components/icons/PlayPauseIcon';
 import { openNavigationMenu } from '../utils/navigation';
 
 type ViewMode = 'list' | 'map';
@@ -43,6 +52,87 @@ function getDistanceColors(distanceKm: number): DistanceColors {
 const LATITUDE_DELTA = 0.02;
 const LONGITUDE_DELTA = 0.02;
 
+// Pulsing marker component for the currently-speaking POI
+function PulsingMarker({ coordinate, title, onPress }: {
+  coordinate: { latitude: number; longitude: number };
+  title: string;
+  onPress: () => void;
+}) {
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulseAnim]);
+
+  const scale = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1.0, 1.5],
+  });
+
+  const opacity = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.8, 0.2],
+  });
+
+  return (
+    <Marker coordinate={coordinate} title={title} onPress={onPress}>
+      <View style={pulsingStyles.container}>
+        <Animated.View
+          style={[
+            pulsingStyles.halo,
+            { transform: [{ scale }], opacity },
+          ]}
+        />
+        <View style={pulsingStyles.pin} />
+      </View>
+    </Marker>
+  );
+}
+
+const pulsingStyles = StyleSheet.create({
+  container: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  halo: {
+    position: 'absolute',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f59e0b',
+  },
+  pin: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#4338ca',
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+});
+
 function ListEmpty() {
   return (
     <View style={styles.emptyContainer}>
@@ -61,9 +151,41 @@ export function NearbyPoisScreen() {
   const [showDashedLine, setShowDashedLine] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDistanceTier, setSelectedDistanceTier] = useState<DistanceTier>('all');
+  const [isMuted, setIsMuted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentlyPlayingPoiId, setCurrentlyPlayingPoiId] = useState<string | null>(null);
   const mapRef = useRef<MapView>(null);
   const cameraTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { location, error: locationError, loading: locationLoading } = useLocation();
+
+  // TTS initialization and event listeners
+  useEffect(() => {
+    HearbyTts.setLanguage('he-IL');
+    HearbyTts.activateAudioSession();
+
+    const finishSub = ttsEmitter.addListener('tts-finish', () => {
+      setCurrentlyPlayingPoiId(null);
+      setIsPaused(false);
+    });
+    const cancelSub = ttsEmitter.addListener('tts-cancel', () => {
+      setCurrentlyPlayingPoiId(null);
+      setIsPaused(false);
+    });
+    const pauseSub = ttsEmitter.addListener('tts-pause', () => {
+      setIsPaused(true);
+    });
+    const resumeSub = ttsEmitter.addListener('tts-resume', () => {
+      setIsPaused(false);
+    });
+
+    return () => {
+      HearbyTts.stop();
+      finishSub.remove();
+      cancelSub.remove();
+      pauseSub.remove();
+      resumeSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setMinSplashDone(true), 2000);
@@ -88,6 +210,31 @@ export function NearbyPoisScreen() {
     enabled: !!location,
     initialPageParam: 1,
   });
+
+  // Wikipedia summary for selected POI
+  const { data: wikiData } = useQuery({
+    queryKey: ['wikipedia', selectedPoi?.id],
+    queryFn: () =>
+      fetchWikipediaSummary(
+        selectedPoi!.coordinates.coordinates[1],
+        selectedPoi!.coordinates.coordinates[0],
+      ),
+    enabled: !!selectedPoi,
+  });
+
+  // TTS speech trigger
+  useEffect(() => {
+    if (isMuted || !wikiData?.summary) {
+      HearbyTts.stop();
+      setCurrentlyPlayingPoiId(null);
+      setIsPaused(false);
+      return;
+    }
+    HearbyTts.stop();
+    setIsPaused(false);
+    setCurrentlyPlayingPoiId(selectedPoi?.id ?? null);
+    HearbyTts.speak(wikiData.summary);
+  }, [wikiData, isMuted]);
 
   const pois = useMemo(
     () => data?.pages.flatMap((page) => page.data) ?? [],
@@ -345,22 +492,37 @@ export function NearbyPoisScreen() {
           onRegionChangeComplete={handleRegionChangeComplete}
           onPress={() => setSelectedPoi(null)}
         >
-          {filteredPois.map((poi) => (
-            <Marker
-              key={poi.id}
-              coordinate={{
-                latitude: poi.coordinates.coordinates[1],
-                longitude: poi.coordinates.coordinates[0],
-              }}
-              title={poi.name}
-              description={`${(poi.distanceInMeters / 1000).toFixed(1)} km away`}
-              pinColor={selectedPoi?.id === poi.id ? '#4338ca' : '#6366f1'}
-              onPress={() => {
-                setSelectedPoi(poi);
-                setShowDashedLine(true);
-              }}
-            />
-          ))}
+          {filteredPois.map((poi) =>
+            currentlyPlayingPoiId === poi.id ? (
+              <PulsingMarker
+                key={poi.id}
+                coordinate={{
+                  latitude: poi.coordinates.coordinates[1],
+                  longitude: poi.coordinates.coordinates[0],
+                }}
+                title={poi.name}
+                onPress={() => {
+                  setSelectedPoi(poi);
+                  setShowDashedLine(true);
+                }}
+              />
+            ) : (
+              <Marker
+                key={poi.id}
+                coordinate={{
+                  latitude: poi.coordinates.coordinates[1],
+                  longitude: poi.coordinates.coordinates[0],
+                }}
+                title={poi.name}
+                description={`${(poi.distanceInMeters / 1000).toFixed(1)} km away`}
+                pinColor={selectedPoi?.id === poi.id ? '#4338ca' : '#6366f1'}
+                onPress={() => {
+                  setSelectedPoi(poi);
+                  setShowDashedLine(true);
+                }}
+              />
+            ),
+          )}
           {showDashedLine && selectedPoi && location && (
             <Polyline
               coordinates={[
@@ -466,6 +628,41 @@ export function NearbyPoisScreen() {
           {viewMode === 'list' ? 'תצוגת מפה' : 'תצוגת רשימה'}
         </Text>
       </TouchableOpacity>
+
+      {/* Floating mute button */}
+      <TouchableOpacity
+        style={[styles.muteBtn, isMuted && styles.muteBtnMuted]}
+        onPress={() => {
+          setIsMuted((prev) => {
+            if (!prev) {
+              HearbyTts.stop();
+              setCurrentlyPlayingPoiId(null);
+              setIsPaused(false);
+            }
+            return !prev;
+          });
+        }}
+        activeOpacity={0.85}
+      >
+        <VolumeIcon size={20} color={isMuted ? '#64748b' : '#ffffff'} muted={isMuted} />
+      </TouchableOpacity>
+
+      {/* Floating pause/play button */}
+      {currentlyPlayingPoiId && !isMuted && (
+        <TouchableOpacity
+          style={styles.pauseBtn}
+          onPress={() => {
+            if (isPaused) {
+              HearbyTts.resume();
+            } else {
+              HearbyTts.pause();
+            }
+          }}
+          activeOpacity={0.85}
+        >
+          <PlayPauseIcon size={20} color="#ffffff" paused={isPaused} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -669,6 +866,43 @@ const styles = StyleSheet.create({
     shadowColor: '#4338ca',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  muteBtn: {
+    position: 'absolute',
+    bottom: 32,
+    left: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#4338ca',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  muteBtnMuted: {
+    backgroundColor: '#e2e8f0',
+  },
+  pauseBtn: {
+    position: 'absolute',
+    bottom: 32,
+    left: 72,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#4338ca',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 6,
   },

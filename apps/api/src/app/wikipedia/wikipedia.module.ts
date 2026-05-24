@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { WikipediaService } from './wikipedia.service';
+import { WikipediaController } from './wikipedia.controller';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -10,6 +11,7 @@ const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
       ttl: ONE_WEEK_MS,
     }),
   ],
+  controllers: [WikipediaController],
   providers: [WikipediaService],
   exports: [WikipediaService],
 })

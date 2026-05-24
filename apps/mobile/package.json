@@ -9,6 +9,7 @@
     "react-native": "*",
     "react-native-geolocation-service": "*",
     "react-native-maps": "*",
-    "react-native-svg": "*"
+    "react-native-svg": "*",
+    "react-native-tts": "*"
   }
 }

@@ -68,6 +68,9 @@ export class WikipediaService {
         gslimit: 1,
         format: 'json',
       },
+      headers: {
+        'User-Agent': 'HearbyApp/1.0 (https://github.com/ArielBar/hearby)',
+      },
       timeout: this.timeout,
     });
 
@@ -90,6 +93,9 @@ export class WikipediaService {
         explaintext: 1,
         pageids: pageId,
         format: 'json',
+      },
+      headers: {
+        'User-Agent': 'HearbyApp/1.0 (https://github.com/ArielBar/hearby)',
       },
       timeout: this.timeout,
     });

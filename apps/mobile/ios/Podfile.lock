@@ -1757,6 +1757,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - Yoga
   - SocketRocket (0.7.1)
+  - TextToSpeech (4.1.1):
+    - React-Core
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -1834,6 +1836,7 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../../../node_modules/react-native/ReactCommon`)
   - RNSVG (from `../../../node_modules/react-native-svg`)
+  - TextToSpeech (from `../../../node_modules/react-native-tts`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
@@ -1986,6 +1989,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native/ReactCommon"
   RNSVG:
     :path: "../../../node_modules/react-native-svg"
+  TextToSpeech:
+    :path: "../../../node_modules/react-native-tts"
   Yoga:
     :path: "../../../node_modules/react-native/ReactCommon/yoga"
 
@@ -2063,6 +2068,7 @@ SPEC CHECKSUMS:
   ReactCommon: 4e460daed3ccb6af9e3de3176920362d8b888a17
   RNSVG: 794f269526df9ddc1f79b3d1a202b619df0368e3
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
+  TextToSpeech: 89b239221ec378d213af422d14789a729705360b
   Yoga: 9663a18d096f7f7e17a535cf00849db756709955
 
 PODFILE CHECKSUM: fbd85206e41f2ae050d3621bf43f42d7c703993a
