@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import MapView, { Marker, Polyline, Region } from 'react-native-maps';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
@@ -213,28 +214,28 @@ export function NearbyPoisScreen() {
 
   // Wikipedia summary for selected POI
   const { data: wikiData } = useQuery({
-    queryKey: ['wikipedia', selectedPoi?.id],
-    queryFn: () =>
-      fetchWikipediaSummary(
-        selectedPoi!.coordinates.coordinates[1],
-        selectedPoi!.coordinates.coordinates[0],
-      ),
+    queryKey: ['wikipedia', selectedPoi?.name],
+    queryFn: () => fetchWikipediaSummary(selectedPoi!.name),
     enabled: !!selectedPoi,
   });
 
-  // TTS speech trigger
-  useEffect(() => {
-    if (isMuted || !wikiData?.summary) {
-      HearbyTts.stop();
-      setCurrentlyPlayingPoiId(null);
-      setIsPaused(false);
-      return;
-    }
+  // Manual TTS play handler
+  const handlePlayTts = useCallback(() => {
+    if (!wikiData?.summary || isMuted) return;
     HearbyTts.stop();
     setIsPaused(false);
     setCurrentlyPlayingPoiId(selectedPoi?.id ?? null);
     HearbyTts.speak(wikiData.summary);
-  }, [wikiData, isMuted]);
+  }, [wikiData, isMuted, selectedPoi]);
+
+  // Stop TTS when muted or POI deselected
+  useEffect(() => {
+    if (isMuted || !selectedPoi) {
+      HearbyTts.stop();
+      setCurrentlyPlayingPoiId(null);
+      setIsPaused(false);
+    }
+  }, [isMuted, selectedPoi]);
 
   const pois = useMemo(
     () => data?.pages.flatMap((page) => page.data) ?? [],
@@ -333,6 +334,9 @@ export function NearbyPoisScreen() {
 
   const handlePoiSelect = useCallback((poi: PoiWithDistance) => {
     clearCameraTimeout();
+    HearbyTts.stop();
+    setCurrentlyPlayingPoiId(null);
+    setIsPaused(false);
     setSelectedPoi(poi);
     setShowDashedLine(true);
     setViewMode('map');
@@ -341,6 +345,9 @@ export function NearbyPoisScreen() {
       latitude: poi.coordinates.coordinates[1],
       longitude: poi.coordinates.coordinates[0],
     };
+
+    // Debug: copy coordinates to clipboard
+    Clipboard.setString(`${poiCoord.latitude}, ${poiCoord.longitude}`);
 
     setTimeout(() => {
       if (location) {
@@ -648,11 +655,13 @@ export function NearbyPoisScreen() {
       </TouchableOpacity>
 
       {/* Floating pause/play button */}
-      {currentlyPlayingPoiId && !isMuted && (
+      {wikiData?.summary && !isMuted && (
         <TouchableOpacity
           style={styles.pauseBtn}
           onPress={() => {
-            if (isPaused) {
+            if (!currentlyPlayingPoiId) {
+              handlePlayTts();
+            } else if (isPaused) {
               HearbyTts.resume();
             } else {
               HearbyTts.pause();
@@ -660,7 +669,11 @@ export function NearbyPoisScreen() {
           }}
           activeOpacity={0.85}
         >
-          <PlayPauseIcon size={20} color="#ffffff" paused={isPaused} />
+          <PlayPauseIcon
+            size={20}
+            color="#ffffff"
+            paused={!currentlyPlayingPoiId || isPaused}
+          />
         </TouchableOpacity>
       )}
     </View>

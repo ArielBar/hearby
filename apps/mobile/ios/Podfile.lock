@@ -1707,6 +1707,30 @@ PODS:
     - React-logger (= 0.79.7)
     - React-perflogger (= 0.79.7)
     - React-utils (= 0.79.7)
+  - RNCClipboard (1.16.3):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-hermes
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - RNSVG (15.11.2):
     - DoubleConversion
     - glog
@@ -1835,6 +1859,7 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../../../node_modules/react-native/ReactCommon`)
+  - "RNCClipboard (from `../../../node_modules/@react-native-clipboard/clipboard`)"
   - RNSVG (from `../../../node_modules/react-native-svg`)
   - TextToSpeech (from `../../../node_modules/react-native-tts`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
@@ -1987,6 +2012,8 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../../../node_modules/react-native/ReactCommon"
+  RNCClipboard:
+    :path: "../../../node_modules/@react-native-clipboard/clipboard"
   RNSVG:
     :path: "../../../node_modules/react-native-svg"
   TextToSpeech:
@@ -2066,6 +2093,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: b203bace11326361b7f0513b3f5854cd340aa929
   ReactCodegen: 25463f45cfeb98adf151620288bf1132398f39b2
   ReactCommon: 4e460daed3ccb6af9e3de3176920362d8b888a17
+  RNCClipboard: ea6045252d5c0753cf17f62290f647dc0096f6ac
   RNSVG: 794f269526df9ddc1f79b3d1a202b619df0368e3
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   TextToSpeech: 89b239221ec378d213af422d14789a729705360b

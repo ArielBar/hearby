@@ -10,6 +10,7 @@
     "react-native-geolocation-service": "*",
     "react-native-maps": "*",
     "react-native-svg": "*",
-    "react-native-tts": "*"
+    "react-native-tts": "*",
+    "@react-native-clipboard/clipboard": "*"
   }
 }

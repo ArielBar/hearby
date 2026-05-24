@@ -6,17 +6,10 @@ export class WikipediaController {
   constructor(private readonly wikipediaService: WikipediaService) {}
 
   @Get('summary')
-  async getSummary(
-    @Query('lat') lat: string,
-    @Query('lng') lng: string,
-  ) {
-    const latitude = parseFloat(lat);
-    const longitude = parseFloat(lng);
-
-    if (isNaN(latitude) || isNaN(longitude)) {
+  async getSummary(@Query('name') name: string) {
+    if (!name || !name.trim()) {
       return null;
     }
-
-    return this.wikipediaService.getNearbyWikipediaSummary(latitude, longitude);
+    return this.wikipediaService.getSummaryByName(name.trim());
   }
 }

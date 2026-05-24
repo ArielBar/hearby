@@ -6,41 +6,32 @@ import axios from 'axios';
 export interface WikipediaSummary {
   title: string;
   summary: string;
+  url: string;
 }
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const HEADERS = {
+  'User-Agent': 'HearbyApp/1.0 (https://github.com/ArielBar/hearby)',
+};
 
 @Injectable()
 export class WikipediaService {
   private readonly logger = new Logger(WikipediaService.name);
-  private readonly baseUrl = 'https://he.wikipedia.org/w/api.php';
   private readonly timeout = 5000;
 
   constructor(@Inject(CACHE_MANAGER) private readonly cacheManager: Cache) {}
 
-  async getNearbyWikipediaSummary(
-    lat: number,
-    lng: number,
-  ): Promise<WikipediaSummary | null> {
-    const roundedLat = lat.toFixed(4);
-    const roundedLng = lng.toFixed(4);
-    const cacheKey = `wiki_cache_${roundedLat}_${roundedLng}`;
+  async getSummaryByName(name: string): Promise<WikipediaSummary | null> {
+    const cacheKey = `wiki_name_${name.trim().toLowerCase()}`;
 
     try {
-      // Check cache
       const cached = await this.cacheManager.get<WikipediaSummary>(cacheKey);
       if (cached) {
-        this.logger.debug(`Cache hit for [${roundedLat}, ${roundedLng}]`);
+        this.logger.debug(`Cache hit for "${name}"`);
         return cached;
       }
 
-      // Cache miss — fetch from Wikipedia
-      const pageId = await this.findNearbyPageId(lat, lng);
-      if (!pageId) {
-        return null;
-      }
-
-      const result = await this.fetchPageSummary(pageId);
+      const result = await this.findAndFetchSummary(name);
       if (result) {
         await this.cacheManager.set(cacheKey, result, ONE_WEEK_MS);
       }
@@ -48,71 +39,171 @@ export class WikipediaService {
       return result;
     } catch (error) {
       this.logger.error(
-        `Failed to fetch Wikipedia summary for [${lat}, ${lng}]`,
+        `Failed to fetch Wikipedia summary for "${name}"`,
         error instanceof Error ? error.message : error,
       );
       return null;
     }
   }
 
-  private async findNearbyPageId(
-    lat: number,
-    lng: number,
-  ): Promise<number | null> {
-    const response = await axios.get(this.baseUrl, {
-      params: {
-        action: 'query',
-        list: 'geosearch',
-        gscoord: `${lat}|${lng}`,
-        gsradius: 500,
-        gslimit: 1,
-        format: 'json',
-      },
-      headers: {
-        'User-Agent': 'HearbyApp/1.0 (https://github.com/ArielBar/hearby)',
-      },
-      timeout: this.timeout,
-    });
+  private async findAndFetchSummary(
+    name: string,
+  ): Promise<WikipediaSummary | null> {
+    // Strategy 1: Search English Wikipedia → get Hebrew interlanguage link
+    const hebrewFromEnglish = await this.searchEnglishThenHebrew(name);
+    if (hebrewFromEnglish) return hebrewFromEnglish;
 
-    const geoResults = response.data?.query?.geosearch;
-    if (!Array.isArray(geoResults) || geoResults.length === 0) {
-      return null;
-    }
+    // Strategy 2: Direct Hebrew Wikipedia search
+    const hebrewDirect = await this.searchHebrew(name);
+    if (hebrewDirect) return hebrewDirect;
 
-    return geoResults[0].pageid ?? null;
+    return null;
   }
 
-  private async fetchPageSummary(
-    pageId: number,
+  private async searchEnglishThenHebrew(
+    name: string,
   ): Promise<WikipediaSummary | null> {
-    const response = await axios.get(this.baseUrl, {
-      params: {
-        action: 'query',
-        prop: 'extracts',
-        exintro: 1,
-        explaintext: 1,
-        pageids: pageId,
-        format: 'json',
+    // Search English Wikipedia
+    const enResponse = await axios.get(
+      'https://en.wikipedia.org/w/api.php',
+      {
+        params: {
+          action: 'query',
+          list: 'search',
+          srsearch: name,
+          srlimit: 1,
+          format: 'json',
+        },
+        headers: HEADERS,
+        timeout: this.timeout,
       },
-      headers: {
-        'User-Agent': 'HearbyApp/1.0 (https://github.com/ArielBar/hearby)',
+    );
+
+    const enResults = enResponse.data?.query?.search;
+    if (!Array.isArray(enResults) || enResults.length === 0) return null;
+
+    const enTitle = enResults[0].title;
+
+    // Get Hebrew interlanguage link
+    const langResponse = await axios.get(
+      'https://en.wikipedia.org/w/api.php',
+      {
+        params: {
+          action: 'query',
+          titles: enTitle,
+          prop: 'langlinks',
+          lllang: 'he',
+          format: 'json',
+        },
+        headers: HEADERS,
+        timeout: this.timeout,
       },
-      timeout: this.timeout,
-    });
+    );
+
+    const pages = langResponse.data?.query?.pages;
+    const page = pages ? Object.values(pages)[0] as any : null;
+    const heTitle = page?.langlinks?.[0]?.['*'];
+
+    if (heTitle) {
+      // Fetch Hebrew extract by title
+      return this.fetchHebrewExtractByTitle(heTitle);
+    }
+
+    // No Hebrew version — return English extract
+    return this.fetchEnglishExtractByTitle(enTitle);
+  }
+
+  private async searchHebrew(
+    name: string,
+  ): Promise<WikipediaSummary | null> {
+    const response = await axios.get(
+      'https://he.wikipedia.org/w/api.php',
+      {
+        params: {
+          action: 'query',
+          list: 'search',
+          srsearch: name,
+          srlimit: 1,
+          format: 'json',
+        },
+        headers: HEADERS,
+        timeout: this.timeout,
+      },
+    );
+
+    const results = response.data?.query?.search;
+    if (!Array.isArray(results) || results.length === 0) return null;
+
+    return this.fetchHebrewExtractByTitle(results[0].title);
+  }
+
+  private async fetchHebrewExtractByTitle(
+    title: string,
+  ): Promise<WikipediaSummary | null> {
+    const response = await axios.get(
+      'https://he.wikipedia.org/w/api.php',
+      {
+        params: {
+          action: 'query',
+          titles: title,
+          prop: 'extracts',
+          exintro: 1,
+          explaintext: 1,
+          format: 'json',
+        },
+        headers: HEADERS,
+        timeout: this.timeout,
+      },
+    );
 
     const pages = response.data?.query?.pages;
-    if (!pages || !pages[pageId]) {
-      return null;
-    }
+    if (!pages) return null;
 
-    const page = pages[pageId];
-    const title = page.title?.trim();
-    const extract = page.extract?.trim();
+    const page = Object.values(pages)[0] as any;
+    const pageTitle = page?.title?.trim();
+    const extract = page?.extract?.trim();
 
-    if (!title || !extract) {
-      return null;
-    }
+    if (!pageTitle || !extract) return null;
 
-    return { title, summary: extract };
+    return {
+      title: pageTitle,
+      summary: extract,
+      url: `https://he.wikipedia.org/wiki/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`,
+    };
+  }
+
+  private async fetchEnglishExtractByTitle(
+    title: string,
+  ): Promise<WikipediaSummary | null> {
+    const response = await axios.get(
+      'https://en.wikipedia.org/w/api.php',
+      {
+        params: {
+          action: 'query',
+          titles: title,
+          prop: 'extracts',
+          exintro: 1,
+          explaintext: 1,
+          format: 'json',
+        },
+        headers: HEADERS,
+        timeout: this.timeout,
+      },
+    );
+
+    const pages = response.data?.query?.pages;
+    if (!pages) return null;
+
+    const page = Object.values(pages)[0] as any;
+    const pageTitle = page?.title?.trim();
+    const extract = page?.extract?.trim();
+
+    if (!pageTitle || !extract) return null;
+
+    return {
+      title: pageTitle,
+      summary: extract,
+      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`,
+    };
   }
 }
