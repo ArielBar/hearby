@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PoisModule } from './pois/pois.module';
+import { WikipediaModule } from './wikipedia/wikipedia.module';
 import { PointOfInterest } from './entities/point-of-interest.entity';
 
 @Module({
@@ -18,6 +19,7 @@ import { PointOfInterest } from './entities/point-of-interest.entity';
       synchronize: process.env.NODE_ENV !== 'production',
     }),
     PoisModule,
+    WikipediaModule,
   ],
   controllers: [AppController],
   providers: [AppService],
