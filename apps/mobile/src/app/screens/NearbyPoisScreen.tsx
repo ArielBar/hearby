@@ -3,8 +3,10 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -16,8 +18,12 @@ import { MapIcon } from '../components/icons/MapIcon';
 import { ListIcon } from '../components/icons/ListIcon';
 import { AppSplashScreen } from '../components/AppSplashScreen';
 import { NavigationIcon } from '../components/icons/NavigationIcon';
+import { NavArrowIcon } from '../components/icons/NavArrowIcon';
+import { SearchIcon } from '../components/icons/SearchIcon';
+import { openNavigationMenu } from '../utils/navigation';
 
 type ViewMode = 'list' | 'map';
+type DistanceTier = 'all' | 'green' | 'orange' | 'red';
 
 interface DistanceColors {
   background: string;
@@ -53,6 +59,8 @@ export function NearbyPoisScreen() {
   const [selectedPoi, setSelectedPoi] = useState<PoiWithDistance | null>(null);
   const [isUserVisible, setIsUserVisible] = useState(true);
   const [showDashedLine, setShowDashedLine] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDistanceTier, setSelectedDistanceTier] = useState<DistanceTier>('all');
   const mapRef = useRef<MapView>(null);
   const cameraTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { location, error: locationError, loading: locationLoading } = useLocation();
@@ -85,6 +93,28 @@ export function NearbyPoisScreen() {
     () => data?.pages.flatMap((page) => page.data) ?? [],
     [data],
   );
+
+  const filteredPois = useMemo(() => {
+    let result = pois;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      result = result.filter((poi) => poi.name.toLowerCase().includes(query));
+    }
+
+    if (selectedDistanceTier !== 'all') {
+      result = result.filter((poi) => {
+        const km = poi.distanceInMeters / 1000;
+        switch (selectedDistanceTier) {
+          case 'green': return km <= 1.0;
+          case 'orange': return km > 1.0 && km <= 3.0;
+          case 'red': return km > 3.0;
+        }
+      });
+    }
+
+    return result;
+  }, [pois, searchQuery, selectedDistanceTier]);
 
   const region: Region | undefined = useMemo(
     () =>
@@ -198,10 +228,26 @@ export function NearbyPoisScreen() {
       return (
         <TouchableOpacity style={styles.card} onPress={() => handlePoiSelect(item)} activeOpacity={0.7}>
           <Text style={styles.name}>{item.name}</Text>
-          <View style={[styles.distanceBadge, { backgroundColor: colors.background, borderColor: colors.text }]}>
-            <Text style={[styles.distanceText, { color: colors.text }]}>
-              {distanceKm.toFixed(1)} ק"מ
-            </Text>
+          <View style={styles.cardActions}>
+            <View style={[styles.distanceBadge, { backgroundColor: colors.background, borderColor: colors.text }]}>
+              <Text style={[styles.distanceText, { color: colors.text }]}>
+                {distanceKm.toFixed(1)} ק"מ
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.navBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                openNavigationMenu(
+                  item.coordinates.coordinates[1],
+                  item.coordinates.coordinates[0],
+                  item.name,
+                );
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <NavArrowIcon size={18} color="#6366f1" />
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       );
@@ -234,6 +280,60 @@ export function NearbyPoisScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Search & Filter Header */}
+      <View style={styles.filterHeader}>
+        <View style={styles.searchContainer}>
+          <SearchIcon size={18} color="#94a3b8" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="חפש נקודת עניין..."
+            placeholderTextColor="#94a3b8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+          />
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsContainer}
+        >
+          <TouchableOpacity
+            style={[
+              styles.chip,
+              selectedDistanceTier === 'green' && styles.chipGreenActive,
+            ]}
+            onPress={() => setSelectedDistanceTier((prev) => prev === 'green' ? 'all' : 'green')}
+          >
+            <Text style={[styles.chipText, selectedDistanceTier === 'green' && styles.chipGreenText]}>
+              קרוב (עד 1 ק"מ)
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.chip,
+              selectedDistanceTier === 'orange' && styles.chipOrangeActive,
+            ]}
+            onPress={() => setSelectedDistanceTier((prev) => prev === 'orange' ? 'all' : 'orange')}
+          >
+            <Text style={[styles.chipText, selectedDistanceTier === 'orange' && styles.chipOrangeText]}>
+              בינוני (1-3 ק"מ)
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.chip,
+              selectedDistanceTier === 'red' && styles.chipRedActive,
+            ]}
+            onPress={() => setSelectedDistanceTier((prev) => prev === 'red' ? 'all' : 'red')}
+          >
+            <Text style={[styles.chipText, selectedDistanceTier === 'red' && styles.chipRedText]}>
+              רחוק (מעל 3 ק"מ)
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
       {viewMode === 'map' ? (<>
         <MapView
           ref={mapRef}
@@ -243,8 +343,9 @@ export function NearbyPoisScreen() {
           showsCompass
           showsMyLocationButton={false}
           onRegionChangeComplete={handleRegionChangeComplete}
+          onPress={() => setSelectedPoi(null)}
         >
-          {pois.map((poi) => (
+          {filteredPois.map((poi) => (
             <Marker
               key={poi.id}
               coordinate={{
@@ -253,7 +354,11 @@ export function NearbyPoisScreen() {
               }}
               title={poi.name}
               description={`${(poi.distanceInMeters / 1000).toFixed(1)} km away`}
-              pinColor="#6366f1"
+              pinColor={selectedPoi?.id === poi.id ? '#4338ca' : '#6366f1'}
+              onPress={() => {
+                setSelectedPoi(poi);
+                setShowDashedLine(true);
+              }}
             />
           ))}
           {showDashedLine && selectedPoi && location && (
@@ -280,17 +385,65 @@ export function NearbyPoisScreen() {
             <NavigationIcon size={20} color="#ffffff" />
           </TouchableOpacity>
         )}
+        {selectedPoi && (
+          <View style={styles.previewCard}>
+            {/* Close button - top right */}
+            <TouchableOpacity
+              style={styles.previewClose}
+              onPress={() => setSelectedPoi(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.previewCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            <View style={styles.previewContent}>
+              {/* Left: Info stack */}
+              <View style={styles.previewInfo}>
+                <Text style={styles.previewName} numberOfLines={2}>
+                  {selectedPoi.name}
+                </Text>
+                {(() => {
+                  const km = selectedPoi.distanceInMeters / 1000;
+                  const colors = getDistanceColors(km);
+                  return (
+                    <View style={[styles.previewBadge, { backgroundColor: colors.background, borderColor: colors.text }]}>
+                      <Text style={[styles.previewBadgeText, { color: colors.text }]}>
+                        {km.toFixed(1)} ק"מ
+                      </Text>
+                    </View>
+                  );
+                })()}
+              </View>
+
+              {/* Right: Navigate button */}
+              <TouchableOpacity
+                style={styles.previewNavBtn}
+                onPress={() =>
+                  openNavigationMenu(
+                    selectedPoi.coordinates.coordinates[1],
+                    selectedPoi.coordinates.coordinates[0],
+                    selectedPoi.name,
+                  )
+                }
+                activeOpacity={0.8}
+              >
+                <NavArrowIcon size={16} color="#ffffff" />
+                <Text style={styles.previewNavText}>נווט</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </>) : (
         <FlatList
           style={styles.listContainer}
-          data={pois}
+          data={filteredPois}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.5}
           ListFooterComponent={renderFooter}
           ListEmptyComponent={ListEmpty}
-          contentContainerStyle={pois.length === 0 ? styles.listEmpty : styles.list}
+          contentContainerStyle={filteredPois.length === 0 ? styles.listEmpty : styles.list}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}
@@ -321,6 +474,74 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  filterHeader: {
+    backgroundColor: '#ffffff',
+    paddingTop: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    zIndex: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1e293b',
+    textAlign: 'right',
+    padding: 0,
+  },
+  chipsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 10,
+  },
+  chip: {
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  chipGreenActive: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#16a34a',
+  },
+  chipGreenText: {
+    color: '#16a34a',
+  },
+  chipOrangeActive: {
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#ea580c',
+  },
+  chipOrangeText: {
+    color: '#ea580c',
+  },
+  chipRedActive: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#dc2626',
+  },
+  chipRedText: {
+    color: '#dc2626',
   },
   center: {
     flex: 1,
@@ -389,6 +610,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  navBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eef2ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   footer: {
     paddingVertical: 20,
     alignItems: 'center',
@@ -437,5 +671,85 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 6,
     elevation: 6,
+  },
+  previewCard: {
+    position: 'absolute',
+    bottom: 90,
+    left: 16,
+    right: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    zIndex: 20,
+    shadowColor: '#1e293b',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  previewClose: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  previewCloseText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#94a3b8',
+    lineHeight: 16,
+  },
+  previewContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewInfo: {
+    flex: 1,
+    marginRight: 16,
+    gap: 10,
+  },
+  previewName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1e293b',
+    paddingRight: 36,
+  },
+  previewBadge: {
+    alignSelf: 'flex-start',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  previewBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  previewNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#6366f1',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  previewNavText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
   },
 });
