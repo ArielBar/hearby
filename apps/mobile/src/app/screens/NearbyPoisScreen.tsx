@@ -1,16 +1,38 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import MapView, { Marker, Polyline, Region } from 'react-native-maps';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchNearbyPois, PoiWithDistance } from '../api/pois.api';
 import { useLocation } from '../hooks/useLocation';
+import { MapIcon } from '../components/icons/MapIcon';
+import { ListIcon } from '../components/icons/ListIcon';
+import { AppSplashScreen } from '../components/AppSplashScreen';
+import { NavigationIcon } from '../components/icons/NavigationIcon';
+
+type ViewMode = 'list' | 'map';
+
+interface DistanceColors {
+  background: string;
+  text: string;
+}
+
+function getDistanceColors(distanceKm: number): DistanceColors {
+  if (distanceKm <= 1.0) {
+    return { background: '#f0fdf4', text: '#16a34a' };
+  }
+  if (distanceKm <= 3.0) {
+    return { background: '#fff7ed', text: '#ea580c' };
+  }
+  return { background: '#fef2f2', text: '#dc2626' };
+}
 
 const LATITUDE_DELTA = 0.02;
 const LONGITUDE_DELTA = 0.02;
@@ -26,7 +48,19 @@ function ListEmpty() {
 }
 
 export function NearbyPoisScreen() {
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [minSplashDone, setMinSplashDone] = useState(false);
+  const [selectedPoi, setSelectedPoi] = useState<PoiWithDistance | null>(null);
+  const [isUserVisible, setIsUserVisible] = useState(true);
+  const [showDashedLine, setShowDashedLine] = useState(false);
+  const mapRef = useRef<MapView>(null);
+  const cameraTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { location, error: locationError, loading: locationLoading } = useLocation();
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMinSplashDone(true), 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const {
     data,
@@ -75,16 +109,104 @@ export function NearbyPoisScreen() {
     refetch();
   }, [refetch]);
 
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => (prev === 'list' ? 'map' : 'list'));
+  }, []);
+
+  const handleRegionChangeComplete = useCallback(
+    (newRegion: Region) => {
+      if (!location) return;
+      const latMin = newRegion.latitude - newRegion.latitudeDelta / 2;
+      const latMax = newRegion.latitude + newRegion.latitudeDelta / 2;
+      const lngMin = newRegion.longitude - newRegion.longitudeDelta / 2;
+      const lngMax = newRegion.longitude + newRegion.longitudeDelta / 2;
+
+      const inBounds =
+        location.lat >= latMin &&
+        location.lat <= latMax &&
+        location.lng >= lngMin &&
+        location.lng <= lngMax;
+
+      setIsUserVisible(inBounds);
+    },
+    [location],
+  );
+
+  const clearCameraTimeout = useCallback(() => {
+    if (cameraTimeoutRef.current) {
+      clearTimeout(cameraTimeoutRef.current);
+      cameraTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleRecenter = useCallback(() => {
+    if (!location) return;
+    clearCameraTimeout();
+    setShowDashedLine(false);
+    mapRef.current?.animateToRegion(
+      {
+        latitude: location.lat,
+        longitude: location.lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      },
+      500,
+    );
+  }, [location, clearCameraTimeout]);
+
+  const handlePoiSelect = useCallback((poi: PoiWithDistance) => {
+    clearCameraTimeout();
+    setSelectedPoi(poi);
+    setShowDashedLine(true);
+    setViewMode('map');
+
+    const poiCoord = {
+      latitude: poi.coordinates.coordinates[1],
+      longitude: poi.coordinates.coordinates[0],
+    };
+
+    setTimeout(() => {
+      if (location) {
+        const userCoord = { latitude: location.lat, longitude: location.lng };
+        mapRef.current?.fitToCoordinates([userCoord, poiCoord], {
+          edgePadding: { top: 80, right: 80, bottom: 120, left: 80 },
+          animated: true,
+        });
+      } else {
+        mapRef.current?.animateToRegion(
+          { ...poiCoord, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+          600,
+        );
+      }
+
+      // After 4s, hide line and zoom into the POI
+      cameraTimeoutRef.current = setTimeout(() => {
+        setShowDashedLine(false);
+        mapRef.current?.animateToRegion(
+          { ...poiCoord, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+          800,
+        );
+        cameraTimeoutRef.current = null;
+      }, 4000);
+    }, 150);
+  }, [location, clearCameraTimeout]);
+
   const renderItem = useCallback(
-    ({ item }: { item: PoiWithDistance }) => (
-      <View style={styles.card}>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.distance}>
-          {(item.distanceInMeters / 1000).toFixed(1)} km
-        </Text>
-      </View>
-    ),
-    [],
+    ({ item }: { item: PoiWithDistance }) => {
+      const distanceKm = item.distanceInMeters / 1000;
+      const colors = getDistanceColors(distanceKm);
+      return (
+        <TouchableOpacity style={styles.card} onPress={() => handlePoiSelect(item)} activeOpacity={0.7}>
+          <Text style={styles.name}>{item.name}</Text>
+          <View style={[styles.distanceBadge, { backgroundColor: colors.background, borderColor: colors.text }]}>
+            <Text style={[styles.distanceText, { color: colors.text }]}>
+              {distanceKm.toFixed(1)} ק"מ
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [handlePoiSelect],
   );
 
   const renderFooter = useCallback(() => {
@@ -96,13 +218,8 @@ export function NearbyPoisScreen() {
     );
   }, [isFetchingNextPage]);
 
-  // Full-screen spinner only for initial load
-  if (locationLoading || isLoading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#6366f1" />
-      </View>
-    );
+  if (!minSplashDone || locationLoading || isLoading) {
+    return <AppSplashScreen />;
   }
 
   if (locationError || isError) {
@@ -117,14 +234,15 @@ export function NearbyPoisScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Map — top 40% */}
-      <View style={styles.mapContainer}>
+      {viewMode === 'map' ? (<>
         <MapView
+          ref={mapRef}
           style={styles.map}
           initialRegion={region}
           showsUserLocation
           showsCompass
-          showsMyLocationButton
+          showsMyLocationButton={false}
+          onRegionChangeComplete={handleRegionChangeComplete}
         >
           {pois.map((poi) => (
             <Marker
@@ -138,12 +256,33 @@ export function NearbyPoisScreen() {
               pinColor="#6366f1"
             />
           ))}
+          {showDashedLine && selectedPoi && location && (
+            <Polyline
+              coordinates={[
+                { latitude: location.lat, longitude: location.lng },
+                {
+                  latitude: selectedPoi.coordinates.coordinates[1],
+                  longitude: selectedPoi.coordinates.coordinates[0],
+                },
+              ]}
+              strokeColor="#6366f1"
+              strokeWidth={3}
+              lineDashPattern={[5, 5]}
+            />
+          )}
         </MapView>
-      </View>
-
-      {/* List — bottom 60% */}
-      <View style={styles.listContainer}>
+        {!isUserVisible && location && (
+          <TouchableOpacity
+            style={styles.recenterBtn}
+            onPress={handleRecenter}
+            activeOpacity={0.85}
+          >
+            <NavigationIcon size={20} color="#ffffff" />
+          </TouchableOpacity>
+        )}
+      </>) : (
         <FlatList
+          style={styles.listContainer}
           data={pois}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
@@ -161,7 +300,19 @@ export function NearbyPoisScreen() {
             />
           }
         />
-      </View>
+      )}
+
+      {/* Floating toggle button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={toggleViewMode}
+        activeOpacity={0.85}
+      >
+        {viewMode === 'list' ? <MapIcon size={20} color="#ffffff" /> : <ListIcon size={20} color="#ffffff" />}
+        <Text style={styles.fabText}>
+          {viewMode === 'list' ? 'תצוגת מפה' : 'תצוגת רשימה'}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -176,16 +327,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  mapContainer: {
-    flex: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
   },
   listContainer: {
-    flex: 6,
+    flex: 1,
   },
   list: {
     padding: 16,
@@ -232,6 +378,17 @@ const styles = StyleSheet.create({
     color: '#6366f1',
     marginLeft: 12,
   },
+  distanceBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginLeft: 12,
+  },
+  distanceText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   footer: {
     paddingVertical: 20,
     alignItems: 'center',
@@ -239,5 +396,46 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     color: '#ef4444',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 32,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#6366f1',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 28,
+    zIndex: 10,
+    shadowColor: '#4338ca',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  fabText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.3,
+  },
+  recenterBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#4338ca',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
   },
 });

@@ -28,8 +28,8 @@ async function requestAndroidPermission(): Promise<boolean> {
 
 async function hasLocationPermission(): Promise<boolean> {
   if (Platform.OS === 'ios') {
-    // iOS permissions are handled via Info.plist prompt automatically
-    return true;
+    const status = await Geolocation.requestAuthorization('whenInUse');
+    return status === 'granted' || status === 'disabled';
   }
 
   if (Platform.OS === 'android') {
@@ -43,25 +43,25 @@ export function useLocation(): UseLocationResult {
   const [location, setLocation] = useState<LocationCoords | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const isMounted = useRef(true);
+  const watchId = useRef<number | null>(null);
 
   useEffect(() => {
-    isMounted.current = true;
+    let mounted = true;
 
-    const fetchLocation = async () => {
+    const startWatching = async () => {
       const permitted = await hasLocationPermission();
 
       if (!permitted) {
-        if (isMounted.current) {
+        if (mounted) {
           setError('Location permission denied');
           setLoading(false);
         }
         return;
       }
 
-      Geolocation.getCurrentPosition(
+      watchId.current = Geolocation.watchPosition(
         (position) => {
-          if (isMounted.current) {
+          if (mounted) {
             setLocation({
               lat: position.coords.latitude,
               lng: position.coords.longitude,
@@ -71,23 +71,27 @@ export function useLocation(): UseLocationResult {
           }
         },
         (err) => {
-          if (isMounted.current) {
+          if (mounted) {
             setError(err.message);
             setLoading(false);
           }
         },
         {
           enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 10000,
+          distanceFilter: 50,
+          interval: 10000,
+          fastestInterval: 5000,
         },
       );
     };
 
-    fetchLocation();
+    startWatching();
 
     return () => {
-      isMounted.current = false;
+      mounted = false;
+      if (watchId.current !== null) {
+        Geolocation.clearWatch(watchId.current);
+      }
     };
   }, []);
 

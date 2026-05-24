@@ -3,9 +3,9 @@ import {
   PrimaryGeneratedColumn,
   Column,
   Index,
+  ValueTransformer,
 } from 'typeorm';
-import { Point } from 'geojson';
-import { ValueTransformer } from 'typeorm';
+import type { Point } from 'geojson';
 
 /**
  * Ensures coordinates are stored in GeoJSON standard order: [longitude, latitude].

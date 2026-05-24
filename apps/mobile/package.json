@@ -4,9 +4,11 @@
   "private": true,
   "dependencies": {
     "@react-native/metro-config": "*",
+    "metro-config": "*",
     "react": "*",
     "react-native": "*",
-    "react-native-svg": "*",
-    "metro-config": "*"
+    "react-native-geolocation-service": "*",
+    "react-native-maps": "*",
+    "react-native-svg": "*"
   }
 }

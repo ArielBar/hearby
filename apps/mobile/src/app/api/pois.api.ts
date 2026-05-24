@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:3000'; // TODO: replace with env config
+const BASE_URL = 'http://localhost:3000/api'; // TODO: replace with env config
 
 export interface GeoJsonPoint {
   type: 'Point';
