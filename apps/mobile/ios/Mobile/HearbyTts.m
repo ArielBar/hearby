@@ -37,7 +37,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (NSArray<NSString *> *)supportedEvents {
-  return @[@"tts-finish", @"tts-cancel", @"tts-pause", @"tts-resume"];
+  return @[@"tts-finish", @"tts-cancel", @"tts-pause", @"tts-resume", @"tts-error", @"tts-start"];
 }
 
 - (void)startObserving {
@@ -68,8 +68,18 @@ RCT_EXPORT_METHOD(speak:(NSString *)text) {
       [self.synthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
     }
     AVSpeechUtterance *utterance = [[AVSpeechUtterance alloc] initWithString:text];
-    utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:self.defaultLanguage];
+
+    // Try requested language, fall back to en-US if voice unavailable
+    AVSpeechSynthesisVoice *voice = [AVSpeechSynthesisVoice voiceWithLanguage:self.defaultLanguage];
+    if (!voice) {
+      voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"en-US"];
+    }
+    utterance.voice = voice;
     utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.85;
+
+    if (self.hasListeners) {
+      [self sendEventWithName:@"tts-start" body:@{@"language": self.defaultLanguage}];
+    }
     [self.synthesizer speakUtterance:utterance];
   });
 }

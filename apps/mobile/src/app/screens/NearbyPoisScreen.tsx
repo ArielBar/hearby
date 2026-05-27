@@ -1,163 +1,123 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
   FlatList,
+  Keyboard,
   NativeEventEmitter,
   NativeModules,
-  RefreshControl,
-  ScrollView,
+  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
-import MapView, { Marker, Polyline, Region } from 'react-native-maps';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import MapView, { Marker } from 'react-native-maps';
+import { useQuery } from '@tanstack/react-query';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
-import { fetchNearbyPois, PoiWithDistance } from '../api/pois.api';
-import { fetchWikipediaSummary } from '../api/wikipedia.api';
-import { useLocation } from '../hooks/useLocation';
-import { MapIcon } from '../components/icons/MapIcon';
-import { ListIcon } from '../components/icons/ListIcon';
-import { AppSplashScreen } from '../components/AppSplashScreen';
-import { NavigationIcon } from '../components/icons/NavigationIcon';
-import { NavArrowIcon } from '../components/icons/NavArrowIcon';
-import { SearchIcon } from '../components/icons/SearchIcon';
-import { VolumeIcon } from '../components/icons/VolumeIcon';
-import { PlayPauseIcon } from '../components/icons/PlayPauseIcon';
-import { openNavigationMenu } from '../utils/navigation';
 
-type ViewMode = 'list' | 'map';
-type DistanceTier = 'all' | 'green' | 'orange' | 'red';
+// Backend API call
+const BASE_URL = 'http://localhost:3000/api';
 
-interface DistanceColors {
-  background: string;
-  text: string;
+interface EnrichResult {
+  name: string;
+  category: string;
+  summary: string;
+  url: string;
 }
 
-function getDistanceColors(distanceKm: number): DistanceColors {
-  if (distanceKm <= 1.0) {
-    return { background: '#f0fdf4', text: '#16a34a' };
-  }
-  if (distanceKm <= 3.0) {
-    return { background: '#fff7ed', text: '#ea580c' };
-  }
-  return { background: '#fef2f2', text: '#dc2626' };
+interface Coordinate {
+  latitude: number;
+  longitude: number;
 }
 
-const LATITUDE_DELTA = 0.02;
-const LONGITUDE_DELTA = 0.02;
-
-// Pulsing marker component for the currently-speaking POI
-function PulsingMarker({ coordinate, title, onPress }: {
-  coordinate: { latitude: number; longitude: number };
+interface AutocompleteResult {
   title: string;
-  onPress: () => void;
-}) {
-  const pulseAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0,
-          duration: 1200,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [pulseAnim]);
-
-  const scale = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1.0, 1.5],
-  });
-
-  const opacity = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.8, 0.2],
-  });
-
-  return (
-    <Marker coordinate={coordinate} title={title} onPress={onPress}>
-      <View style={pulsingStyles.container}>
-        <Animated.View
-          style={[
-            pulsingStyles.halo,
-            { transform: [{ scale }], opacity },
-          ]}
-        />
-        <View style={pulsingStyles.pin} />
-      </View>
-    </Marker>
-  );
+  description: string;
+  lat: number | null;
+  lng: number | null;
 }
 
-const pulsingStyles = StyleSheet.create({
-  container: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  halo: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f59e0b',
-  },
-  pin: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#4338ca',
-    borderWidth: 3,
-    borderColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 5,
-  },
-});
+/**
+ * Fetch POI enrichment by coordinates
+ * Server will search Wikipedia for POIs near these coordinates
+ */
+async function fetchPoiEnrichment(
+  coordinate: Coordinate,
+): Promise<EnrichResult | null> {
+  const params = new URLSearchParams({
+    lat: coordinate.latitude.toString(),
+    lng: coordinate.longitude.toString(),
+  });
+  const res = await fetch(`${BASE_URL}/pois/enrich?${params}`);
 
-function ListEmpty() {
-  return (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyText}>
-        לא נמצאו נקודות עניין באזור זה.{'\n'}נסה לרענן או להגדיל את הרדיוס.
-      </Text>
-    </View>
-  );
+  if (res.status === 204 || !res.ok) {
+    return null;
+  }
+
+  return res.json();
+}
+
+/**
+ * Fetch autocomplete suggestions from Wikipedia
+ */
+async function fetchAutocomplete(query: string): Promise<AutocompleteResult[]> {
+  if (!query || query.trim().length < 2) {
+    return [];
+  }
+
+  const params = new URLSearchParams({ query: query.trim() });
+  const res = await fetch(`${BASE_URL}/wikipedia/autocomplete?${params}`);
+
+  if (!res.ok) {
+    return [];
+  }
+
+  return res.json();
 }
 
 export function NearbyPoisScreen() {
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [minSplashDone, setMinSplashDone] = useState(false);
-  const [selectedPoi, setSelectedPoi] = useState<PoiWithDistance | null>(null);
-  const [isUserVisible, setIsUserVisible] = useState(true);
-  const [showDashedLine, setShowDashedLine] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDistanceTier, setSelectedDistanceTier] = useState<DistanceTier>('all');
-  const [isMuted, setIsMuted] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [currentlyPlayingPoiId, setCurrentlyPlayingPoiId] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
-  const cameraTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { location, error: locationError, loading: locationLoading } = useLocation();
+
+  // Core state: selected coordinate and temp marker coords
+  const [selectedCoordinate, setSelectedCoordinate] =
+    useState<Coordinate | null>(null);
+  const [tempMarkerCoords, setTempMarkerCoords] = useState<Coordinate | null>(
+    null,
+  );
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchResults, setShowSearchResults] = useState(false);
+
+  // TTS playback state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+
+  // Targeted fetch: only when coordinate is selected
+  const { data: poiData, isLoading } = useQuery({
+    queryKey: [
+      'poi',
+      selectedCoordinate?.latitude,
+      selectedCoordinate?.longitude,
+    ],
+    queryFn: () => fetchPoiEnrichment(selectedCoordinate!),
+    enabled: !!selectedCoordinate,
+    staleTime: 7 * 24 * 60 * 60 * 1000, // 1 week
+    gcTime: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  // Autocomplete search query - debounced
+  const { data: searchResults = [], isLoading: isSearching } = useQuery({
+    queryKey: ['autocomplete', searchQuery],
+    queryFn: () => fetchAutocomplete(searchQuery),
+    enabled: searchQuery.trim().length >= 2 && showSearchResults,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
 
   // TTS initialization and event listeners
   useEffect(() => {
@@ -165,17 +125,21 @@ export function NearbyPoisScreen() {
     HearbyTts.activateAudioSession();
 
     const finishSub = ttsEmitter.addListener('tts-finish', () => {
-      setCurrentlyPlayingPoiId(null);
+      setIsPlaying(false);
       setIsPaused(false);
     });
     const cancelSub = ttsEmitter.addListener('tts-cancel', () => {
-      setCurrentlyPlayingPoiId(null);
+      setIsPlaying(false);
       setIsPaused(false);
     });
     const pauseSub = ttsEmitter.addListener('tts-pause', () => {
       setIsPaused(true);
     });
     const resumeSub = ttsEmitter.addListener('tts-resume', () => {
+      setIsPaused(false);
+    });
+    const errorSub = ttsEmitter.addListener('tts-error', () => {
+      setIsPlaying(false);
       setIsPaused(false);
     });
 
@@ -185,498 +149,270 @@ export function NearbyPoisScreen() {
       cancelSub.remove();
       pauseSub.remove();
       resumeSub.remove();
+      errorSub.remove();
     };
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setMinSplashDone(true), 2000);
-    return () => clearTimeout(timer);
-  }, []);
+  // Handle map press - send coordinates directly to backend
+  const handleMapPress = useCallback(
+    (coordinate: Coordinate) => {
+      console.log('[NearbyPoisScreen] Map pressed at:', coordinate);
 
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    isError,
-    isRefetching,
-    refetch,
-  } = useInfiniteQuery({
-    queryKey: ['pois', location?.lat, location?.lng],
-    queryFn: ({ pageParam = 1 }) =>
-      fetchNearbyPois(location!.lat, location!.lng, pageParam),
-    getNextPageParam: (lastPage) =>
-      lastPage.meta.hasNextPage ? lastPage.meta.page + 1 : undefined,
-    enabled: !!location,
-    initialPageParam: 1,
-  });
+      // Show temp marker immediately for visual feedback
+      setTempMarkerCoords(coordinate);
+      setSelectedCoordinate(coordinate);
 
-  // Wikipedia summary for selected POI
-  const { data: wikiData } = useQuery({
-    queryKey: ['wikipedia', selectedPoi?.name],
-    queryFn: () => fetchWikipediaSummary(selectedPoi!.name),
-    enabled: !!selectedPoi,
-  });
-
-  // Manual TTS play handler
-  const handlePlayTts = useCallback(() => {
-    if (!wikiData?.summary || isMuted) return;
-    HearbyTts.stop();
-    setIsPaused(false);
-    setCurrentlyPlayingPoiId(selectedPoi?.id ?? null);
-    HearbyTts.speak(wikiData.summary);
-  }, [wikiData, isMuted, selectedPoi]);
-
-  // Stop TTS when muted or POI deselected
-  useEffect(() => {
-    if (isMuted || !selectedPoi) {
+      // Stop any current playback
       HearbyTts.stop();
-      setCurrentlyPlayingPoiId(null);
-      setIsPaused(false);
-    }
-  }, [isMuted, selectedPoi]);
-
-  const pois = useMemo(
-    () => data?.pages.flatMap((page) => page.data) ?? [],
-    [data],
-  );
-
-  const filteredPois = useMemo(() => {
-    let result = pois;
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.trim().toLowerCase();
-      result = result.filter((poi) => poi.name.toLowerCase().includes(query));
-    }
-
-    if (selectedDistanceTier !== 'all') {
-      result = result.filter((poi) => {
-        const km = poi.distanceInMeters / 1000;
-        switch (selectedDistanceTier) {
-          case 'green': return km <= 1.0;
-          case 'orange': return km > 1.0 && km <= 3.0;
-          case 'red': return km > 3.0;
-        }
-      });
-    }
-
-    return result;
-  }, [pois, searchQuery, selectedDistanceTier]);
-
-  const region: Region | undefined = useMemo(
-    () =>
-      location
-        ? {
-            latitude: location.lat,
-            longitude: location.lng,
-            latitudeDelta: LATITUDE_DELTA,
-            longitudeDelta: LONGITUDE_DELTA,
-          }
-        : undefined,
-    [location],
-  );
-
-  const handleEndReached = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const handleRefresh = useCallback(() => {
-    refetch();
-  }, [refetch]);
-
-  const toggleViewMode = useCallback(() => {
-    setViewMode((prev) => (prev === 'list' ? 'map' : 'list'));
-  }, []);
-
-  const handleRegionChangeComplete = useCallback(
-    (newRegion: Region) => {
-      if (!location) return;
-      const latMin = newRegion.latitude - newRegion.latitudeDelta / 2;
-      const latMax = newRegion.latitude + newRegion.latitudeDelta / 2;
-      const lngMin = newRegion.longitude - newRegion.longitudeDelta / 2;
-      const lngMax = newRegion.longitude + newRegion.longitudeDelta / 2;
-
-      const inBounds =
-        location.lat >= latMin &&
-        location.lat <= latMax &&
-        location.lng >= lngMin &&
-        location.lng <= lngMax;
-
-      setIsUserVisible(inBounds);
+      setIsPlaying(false);
+      isPaused && setIsPaused(false);
     },
-    [location],
+    [isPaused],
   );
 
-  const clearCameraTimeout = useCallback(() => {
-    if (cameraTimeoutRef.current) {
-      clearTimeout(cameraTimeoutRef.current);
-      cameraTimeoutRef.current = null;
-    }
-  }, []);
+  // Handle search result selection
+  const handleSearchResultSelect = useCallback((result: AutocompleteResult) => {
+    console.log('[NearbyPoisScreen] Search result selected:', result.title);
 
-  const handleRecenter = useCallback(() => {
-    if (!location) return;
-    clearCameraTimeout();
-    setShowDashedLine(false);
+    // Clear search UI
+    setSearchQuery('');
+    setShowSearchResults(false);
+    Keyboard.dismiss();
+
+    // Check if result has coordinates
+    if (!result.lat || !result.lng) {
+      console.warn('[NearbyPoisScreen] Search result has no coordinates');
+      return;
+    }
+
+    const coordinate: Coordinate = {
+      latitude: result.lat,
+      longitude: result.lng,
+    };
+
+    // Animate map camera to destination (fly-to effect)
     mapRef.current?.animateToRegion(
       {
-        latitude: location.lat,
-        longitude: location.lng,
-        latitudeDelta: 0.01,
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+        latitudeDelta: 0.01, // Zoomed in for landmark view
         longitudeDelta: 0.01,
       },
-      500,
+      1500, // 1.5 second animation
     );
-  }, [location, clearCameraTimeout]);
 
-  const handlePoiSelect = useCallback((poi: PoiWithDistance) => {
-    clearCameraTimeout();
+    // Set marker and trigger POI enrichment automatically
+    setTempMarkerCoords(coordinate);
+    setSelectedCoordinate(coordinate);
+
+    // Stop any current playback
     HearbyTts.stop();
-    setCurrentlyPlayingPoiId(null);
+    setIsPlaying(false);
     setIsPaused(false);
-    setSelectedPoi(poi);
-    setShowDashedLine(true);
-    setViewMode('map');
+  }, []);
 
-    const poiCoord = {
-      latitude: poi.coordinates.coordinates[1],
-      longitude: poi.coordinates.coordinates[0],
-    };
+  // Close bottom sheet and clear selection
+  const handleClose = useCallback(() => {
+    setSelectedCoordinate(null);
+    setTempMarkerCoords(null);
+    HearbyTts.stop();
+    setIsPlaying(false);
+    setIsPaused(false);
+  }, []);
 
-    // Debug: copy coordinates to clipboard
-    Clipboard.setString(`${poiCoord.latitude}, ${poiCoord.longitude}`);
+  // Play/pause TTS handler
+  const handlePlayPause = useCallback(() => {
+    if (!poiData?.summary) return;
 
-    setTimeout(() => {
-      if (location) {
-        const userCoord = { latitude: location.lat, longitude: location.lng };
-        mapRef.current?.fitToCoordinates([userCoord, poiCoord], {
-          edgePadding: { top: 80, right: 80, bottom: 120, left: 80 },
-          animated: true,
-        });
+    if (isPlaying) {
+      if (isPaused) {
+        HearbyTts.resume();
       } else {
-        mapRef.current?.animateToRegion(
-          { ...poiCoord, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-          600,
-        );
+        HearbyTts.pause();
       }
+    } else {
+      // Start new playback with language detection
+      const hebrewPattern = /[\u0590-\u05FF]/;
+      const hasHebrew = hebrewPattern.test(poiData.summary);
+      const lang = hasHebrew ? 'he-IL' : 'en-US';
 
-      // After 4s, hide line and zoom into the POI
-      cameraTimeoutRef.current = setTimeout(() => {
-        setShowDashedLine(false);
-        mapRef.current?.animateToRegion(
-          { ...poiCoord, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-          800,
-        );
-        cameraTimeoutRef.current = null;
-      }, 4000);
-    }, 150);
-  }, [location, clearCameraTimeout]);
-
-  const renderItem = useCallback(
-    ({ item }: { item: PoiWithDistance }) => {
-      const distanceKm = item.distanceInMeters / 1000;
-      const colors = getDistanceColors(distanceKm);
-      return (
-        <TouchableOpacity style={styles.card} onPress={() => handlePoiSelect(item)} activeOpacity={0.7}>
-          <Text style={styles.name}>{item.name}</Text>
-          <View style={styles.cardActions}>
-            <View style={[styles.distanceBadge, { backgroundColor: colors.background, borderColor: colors.text }]}>
-              <Text style={[styles.distanceText, { color: colors.text }]}>
-                {distanceKm.toFixed(1)} ק"מ
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={(e) => {
-                e.stopPropagation();
-                openNavigationMenu(
-                  item.coordinates.coordinates[1],
-                  item.coordinates.coordinates[0],
-                  item.name,
-                );
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <NavArrowIcon size={18} color="#6366f1" />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      );
-    },
-    [handlePoiSelect],
-  );
-
-  const renderFooter = useCallback(() => {
-    if (!isFetchingNextPage) return null;
-    return (
-      <View style={styles.footer}>
-        <ActivityIndicator size="small" color="#6366f1" />
-      </View>
-    );
-  }, [isFetchingNextPage]);
-
-  if (!minSplashDone || locationLoading || isLoading) {
-    return <AppSplashScreen />;
-  }
-
-  if (locationError || isError) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>
-          {locationError || 'Failed to load nearby places.'}
-        </Text>
-      </View>
-    );
-  }
+      try {
+        HearbyTts.setLanguage(lang);
+        HearbyTts.speak(poiData.summary);
+        setIsPlaying(true);
+        setIsPaused(false);
+      } catch (err) {
+        console.error('[TTS] Playback error:', err);
+      }
+    }
+  }, [poiData, isPlaying, isPaused]);
 
   return (
-    <View style={styles.container}>
-      {/* Search & Filter Header */}
-      <View style={styles.filterHeader}>
-        <View style={styles.searchContainer}>
-          <SearchIcon size={18} color="#94a3b8" />
+    <SafeAreaView style={styles.container}>
+      {/* Free Exploration Map */}
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        initialRegion={{
+          latitude: 32.0853, // Tel Aviv
+          longitude: 34.7818,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
+        }}
+        showsUserLocation
+        showsPointsOfInterest
+        showsCompass
+        showsMyLocationButton={false}
+        onPress={(e) => handleMapPress(e.nativeEvent.coordinate)}
+      >
+        {/* Temporary marker at clicked location */}
+        {tempMarkerCoords && (
+          <Marker
+            coordinate={tempMarkerCoords}
+            pinColor="#f59e0b"
+            title={poiData?.name || 'טוען...'}
+          />
+        )}
+      </MapView>
+
+      {/* Global Search Bar - Floating at Top */}
+      <View style={[styles.searchContainer, { top: insets.top + 12 }]}>
+        <View style={styles.searchInputWrapper}>
+          <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="חפש נקודת עניין..."
+            placeholder="חפש יעד תיירותי בעולם..."
             placeholderTextColor="#94a3b8"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onFocus={() => setShowSearchResults(true)}
+            onBlur={() => {
+              // Delay to allow result selection
+              setTimeout(() => setShowSearchResults(false), 200);
+            }}
             returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsContainer}
-        >
-          <TouchableOpacity
-            style={[
-              styles.chip,
-              selectedDistanceTier === 'green' && styles.chipGreenActive,
-            ]}
-            onPress={() => setSelectedDistanceTier((prev) => prev === 'green' ? 'all' : 'green')}
-          >
-            <Text style={[styles.chipText, selectedDistanceTier === 'green' && styles.chipGreenText]}>
-              קרוב (עד 1 ק"מ)
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.chip,
-              selectedDistanceTier === 'orange' && styles.chipOrangeActive,
-            ]}
-            onPress={() => setSelectedDistanceTier((prev) => prev === 'orange' ? 'all' : 'orange')}
-          >
-            <Text style={[styles.chipText, selectedDistanceTier === 'orange' && styles.chipOrangeText]}>
-              בינוני (1-3 ק"מ)
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.chip,
-              selectedDistanceTier === 'red' && styles.chipRedActive,
-            ]}
-            onPress={() => setSelectedDistanceTier((prev) => prev === 'red' ? 'all' : 'red')}
-          >
-            <Text style={[styles.chipText, selectedDistanceTier === 'red' && styles.chipRedText]}>
-              רחוק (מעל 3 ק"מ)
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-
-      {viewMode === 'map' ? (<>
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={region}
-          showsUserLocation
-          showsCompass
-          showsMyLocationButton={false}
-          onRegionChangeComplete={handleRegionChangeComplete}
-          onPress={() => setSelectedPoi(null)}
-        >
-          {filteredPois.map((poi) =>
-            currentlyPlayingPoiId === poi.id ? (
-              <PulsingMarker
-                key={poi.id}
-                coordinate={{
-                  latitude: poi.coordinates.coordinates[1],
-                  longitude: poi.coordinates.coordinates[0],
-                }}
-                title={poi.name}
-                onPress={() => {
-                  setSelectedPoi(poi);
-                  setShowDashedLine(true);
-                }}
-              />
-            ) : (
-              <Marker
-                key={poi.id}
-                coordinate={{
-                  latitude: poi.coordinates.coordinates[1],
-                  longitude: poi.coordinates.coordinates[0],
-                }}
-                title={poi.name}
-                description={`${(poi.distanceInMeters / 1000).toFixed(1)} km away`}
-                pinColor={selectedPoi?.id === poi.id ? '#4338ca' : '#6366f1'}
-                onPress={() => {
-                  setSelectedPoi(poi);
-                  setShowDashedLine(true);
-                }}
-              />
-            ),
-          )}
-          {showDashedLine && selectedPoi && location && (
-            <Polyline
-              coordinates={[
-                { latitude: location.lat, longitude: location.lng },
-                {
-                  latitude: selectedPoi.coordinates.coordinates[1],
-                  longitude: selectedPoi.coordinates.coordinates[0],
-                },
-              ]}
-              strokeColor="#6366f1"
-              strokeWidth={3}
-              lineDashPattern={[5, 5]}
-            />
-          )}
-        </MapView>
-        {!isUserVisible && location && (
-          <TouchableOpacity
-            style={styles.recenterBtn}
-            onPress={handleRecenter}
-            activeOpacity={0.85}
-          >
-            <NavigationIcon size={20} color="#ffffff" />
-          </TouchableOpacity>
-        )}
-        {selectedPoi && (
-          <View style={styles.previewCard}>
-            {/* Close button - top right */}
+          {searchQuery.length > 0 && (
             <TouchableOpacity
-              style={styles.previewClose}
-              onPress={() => setSelectedPoi(null)}
+              onPress={() => {
+                setSearchQuery('');
+                setShowSearchResults(false);
+              }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={styles.previewCloseText}>✕</Text>
+              <Text style={styles.clearIcon}>✕</Text>
             </TouchableOpacity>
+          )}
+        </View>
 
-            <View style={styles.previewContent}>
-              {/* Left: Info stack */}
-              <View style={styles.previewInfo}>
-                <Text style={styles.previewName} numberOfLines={2}>
-                  {selectedPoi.name}
-                </Text>
-                {(() => {
-                  const km = selectedPoi.distanceInMeters / 1000;
-                  const colors = getDistanceColors(km);
-                  return (
-                    <View style={[styles.previewBadge, { backgroundColor: colors.background, borderColor: colors.text }]}>
-                      <Text style={[styles.previewBadgeText, { color: colors.text }]}>
-                        {km.toFixed(1)} ק"מ
-                      </Text>
-                    </View>
-                  );
-                })()}
+        {/* Search Results Dropdown */}
+        {showSearchResults && searchQuery.trim().length >= 2 && (
+          <View style={styles.searchResultsContainer}>
+            {isSearching ? (
+              <View style={styles.searchLoadingContainer}>
+                <ActivityIndicator size="small" color="#6366f1" />
+                <Text style={styles.searchLoadingText}>מחפש...</Text>
               </View>
-
-              {/* Right: Navigate button */}
-              <TouchableOpacity
-                style={styles.previewNavBtn}
-                onPress={() =>
-                  openNavigationMenu(
-                    selectedPoi.coordinates.coordinates[1],
-                    selectedPoi.coordinates.coordinates[0],
-                    selectedPoi.name,
-                  )
-                }
-                activeOpacity={0.8}
-              >
-                <NavArrowIcon size={16} color="#ffffff" />
-                <Text style={styles.previewNavText}>נווט</Text>
-              </TouchableOpacity>
-            </View>
+            ) : searchResults.length > 0 ? (
+              <FlatList
+                data={searchResults}
+                keyExtractor={(item, index) => `${item.title}-${index}`}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.searchResultItem}
+                    onPress={() => handleSearchResultSelect(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.searchResultContent}>
+                      <Text style={styles.searchResultTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {item.description && (
+                        <Text style={styles.searchResultDesc} numberOfLines={2}>
+                          {item.description.replace(/<[^>]*>/g, '')}
+                        </Text>
+                      )}
+                      {!item.lat || !item.lng ? (
+                        <Text style={styles.noLocationBadge}>אין מיקום</Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.searchResultArrow}>←</Text>
+                  </TouchableOpacity>
+                )}
+                style={styles.searchResultsList}
+              />
+            ) : (
+              <View style={styles.searchEmptyContainer}>
+                <Text style={styles.searchEmptyText}>לא נמצאו תוצאות</Text>
+              </View>
+            )}
           </View>
         )}
-      </>) : (
-        <FlatList
-          style={styles.listContainer}
-          data={filteredPois}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          onEndReached={handleEndReached}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={renderFooter}
-          ListEmptyComponent={ListEmpty}
-          contentContainerStyle={filteredPois.length === 0 ? styles.listEmpty : styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={handleRefresh}
-              tintColor="#6366f1"
-              colors={['#6366f1']}
-            />
-          }
-        />
-      )}
+      </View>
 
-      {/* Floating toggle button */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={toggleViewMode}
-        activeOpacity={0.85}
-      >
-        {viewMode === 'list' ? <MapIcon size={20} color="#ffffff" /> : <ListIcon size={20} color="#ffffff" />}
-        <Text style={styles.fabText}>
-          {viewMode === 'list' ? 'תצוגת מפה' : 'תצוגת רשימה'}
-        </Text>
-      </TouchableOpacity>
-
-      {/* Floating mute button */}
-      <TouchableOpacity
-        style={[styles.muteBtn, isMuted && styles.muteBtnMuted]}
-        onPress={() => {
-          setIsMuted((prev) => {
-            if (!prev) {
-              HearbyTts.stop();
-              setCurrentlyPlayingPoiId(null);
-              setIsPaused(false);
-            }
-            return !prev;
-          });
-        }}
-        activeOpacity={0.85}
-      >
-        <VolumeIcon size={20} color={isMuted ? '#64748b' : '#ffffff'} muted={isMuted} />
-      </TouchableOpacity>
-
-      {/* Floating pause/play button */}
-      {wikiData?.summary && !isMuted && (
-        <TouchableOpacity
-          style={styles.pauseBtn}
-          onPress={() => {
-            if (!currentlyPlayingPoiId) {
-              handlePlayTts();
-            } else if (isPaused) {
-              HearbyTts.resume();
-            } else {
-              HearbyTts.pause();
-            }
-          }}
-          activeOpacity={0.85}
+      {/* Conditional Bottom Sheet */}
+      {selectedCoordinate && (
+        <View
+          style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}
         >
-          <PlayPauseIcon
-            size={20}
-            color="#ffffff"
-            paused={!currentlyPlayingPoiId || isPaused}
-          />
-        </TouchableOpacity>
+          {/* Close button */}
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={handleClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+
+          {/* POI Title */}
+          <Text style={styles.title} numberOfLines={2}>
+            {isLoading
+              ? 'מחפש מקום מעניין...'
+              : poiData?.name || 'מקום לא מוכר'}
+          </Text>
+
+          {/* Loading State - Wikipedia fetch */}
+          {isLoading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#6366f1" />
+              <Text style={styles.loadingText}>טוען מידע...</Text>
+            </View>
+          )}
+
+          {/* Condition A: Audio content available */}
+          {!isLoading && poiData?.summary && (
+            <View style={styles.audioContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.playBtn,
+                  isPlaying && !isPaused && styles.playBtnActive,
+                ]}
+                onPress={handlePlayPause}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.playBtnIcon}>
+                  {isPlaying && !isPaused ? '⏸️' : '▶️'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.audioLabel}>
+                {isPlaying && !isPaused ? 'מושמע כעת...' : 'הקש להשמעת תוכן'}
+              </Text>
+            </View>
+          )}
+
+          {/* Condition B: No audio content */}
+          {!isLoading && !poiData?.summary && (
+            <View style={styles.noAudioContainer}>
+              <Text style={styles.mutedIcon}>🔇</Text>
+              <Text style={styles.noAudioText}>אין תוכן שמע זמין למקום זה</Text>
+            </View>
+          )}
+        </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -685,318 +421,217 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-  filterHeader: {
-    backgroundColor: '#ffffff',
-    paddingTop: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    zIndex: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
+  map: {
+    flex: 1,
   },
+  // Search Bar Styles
   searchContainer: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 10,
+  },
+  searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  searchIcon: {
+    fontSize: 18,
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: '#1e293b',
     textAlign: 'right',
     padding: 0,
   },
-  chipsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingTop: 10,
+  clearIcon: {
+    fontSize: 16,
+    color: '#94a3b8',
+    fontWeight: '700',
+    marginLeft: 8,
   },
-  chip: {
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  chipGreenActive: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#16a34a',
-  },
-  chipGreenText: {
-    color: '#16a34a',
-  },
-  chipOrangeActive: {
-    backgroundColor: '#fff7ed',
-    borderWidth: 1,
-    borderColor: '#ea580c',
-  },
-  chipOrangeText: {
-    color: '#ea580c',
-  },
-  chipRedActive: {
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#dc2626',
-  },
-  chipRedText: {
-    color: '#dc2626',
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  map: {
-    flex: 1,
-  },
-  listContainer: {
-    flex: 1,
-  },
-  list: {
-    padding: 16,
-  },
-  listEmpty: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyText: {
-    fontSize: 15,
-    color: '#64748b',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  card: {
+  searchResultsContainer: {
+    marginTop: 8,
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    flex: 1,
-  },
-  distance: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6366f1',
-    marginLeft: 12,
-  },
-  distanceBadge: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
     borderRadius: 16,
-    borderWidth: 1,
-    marginLeft: 12,
-  },
-  distanceText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  cardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  navBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#eef2ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  footer: {
-    paddingVertical: 20,
-    alignItems: 'center',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#ef4444',
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 32,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#6366f1',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 28,
-    zIndex: 10,
-    shadowColor: '#4338ca',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+    maxHeight: 320,
+    overflow: 'hidden',
   },
-  fabText: {
+  searchResultsList: {
+    maxHeight: 320,
+  },
+  searchLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 12,
+  },
+  searchLoadingText: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  searchResultContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  searchResultTitle: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#ffffff',
-    letterSpacing: 0.3,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 4,
+    textAlign: 'right',
   },
-  recenterBtn: {
+  searchResultDesc: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 18,
+    textAlign: 'right',
+  },
+  noLocationBadge: {
+    fontSize: 11,
+    color: '#ef4444',
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  searchResultArrow: {
+    fontSize: 18,
+    color: '#cbd5e1',
+  },
+  searchEmptyContainer: {
+    paddingVertical: 32,
+    alignItems: 'center',
+  },
+  searchEmptyText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  // Bottom Sheet Styles
+  bottomSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingTop: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 16,
+  },
+  closeBtn: {
     position: 'absolute',
     top: 16,
     right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#6366f1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-    shadowColor: '#4338ca',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  muteBtn: {
-    position: 'absolute',
-    bottom: 32,
-    left: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#6366f1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-    shadowColor: '#4338ca',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  muteBtnMuted: {
-    backgroundColor: '#e2e8f0',
-  },
-  pauseBtn: {
-    position: 'absolute',
-    bottom: 32,
-    left: 72,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#6366f1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-    shadowColor: '#4338ca',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  previewCard: {
-    position: 'absolute',
-    bottom: 90,
-    left: 16,
-    right: 16,
-    backgroundColor: '#ffffff',
+    width: 32,
+    height: 32,
     borderRadius: 16,
-    padding: 16,
-    zIndex: 20,
-    shadowColor: '#1e293b',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  previewClose: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
     backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1,
+    zIndex: 10,
   },
-  previewCloseText: {
-    fontSize: 15,
+  closeBtnText: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#94a3b8',
-    lineHeight: 16,
+    color: '#64748b',
   },
-  previewContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  previewInfo: {
-    flex: 1,
-    marginRight: 16,
-    gap: 10,
-  },
-  previewName: {
-    fontSize: 18,
+  title: {
+    fontSize: 22,
     fontWeight: '700',
     color: '#1e293b',
-    paddingRight: 36,
+    marginBottom: 16,
+    paddingRight: 40, // Space for close button
+    textAlign: 'right',
   },
-  previewBadge: {
-    alignSelf: 'flex-start',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  previewBadgeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  previewNavBtn: {
+  loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#6366f1',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 24,
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 12,
   },
-  previewNavText: {
+  loadingText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
+    color: '#64748b',
+  },
+  audioContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  playBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  playBtnActive: {
+    backgroundColor: '#4338ca',
+  },
+  playBtnIcon: {
+    fontSize: 24,
+  },
+  audioLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569',
+    textAlign: 'right',
+  },
+  noAudioContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 20,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+  },
+  mutedIcon: {
+    fontSize: 28,
+  },
+  noAudioText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
   },
 });

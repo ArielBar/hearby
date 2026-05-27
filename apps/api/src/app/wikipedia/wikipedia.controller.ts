@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
 import { WikipediaService } from './wikipedia.service';
 
 @Controller('wikipedia')
@@ -11,5 +11,21 @@ export class WikipediaController {
       return null;
     }
     return this.wikipediaService.getSummaryByName(name.trim());
+  }
+
+  @Get('search')
+  async searchGlobal(@Query('query') query: string) {
+    if (!query || !query.trim()) {
+      throw new BadRequestException('Query parameter "query" is required');
+    }
+    return this.wikipediaService.searchGlobalWikipedia(query.trim());
+  }
+
+  @Get('autocomplete')
+  async autocomplete(@Query('query') query: string) {
+    if (!query || !query.trim()) {
+      return [];
+    }
+    return this.wikipediaService.autocomplete(query.trim());
   }
 }

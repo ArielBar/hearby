@@ -11,6 +11,12 @@
     "react-native-maps": "*",
     "react-native-svg": "*",
     "react-native-tts": "*",
-    "@react-native-clipboard/clipboard": "*"
+    "@react-native-clipboard/clipboard": "*",
+    "@react-native-async-storage/async-storage": "*",
+    "@react-navigation/native": "*",
+    "@react-navigation/native-stack": "*",
+    "react-native-screens": "*",
+    "react-native-safe-area-context": "*",
+    "react-native-geocoding": "*"
   }
 }

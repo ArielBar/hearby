@@ -1,11 +1,16 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { PointOfInterest } from '../entities/point-of-interest.entity';
 import { PoisController } from './pois.controller';
 import { PoisService } from './pois.service';
+import { WikipediaModule } from '../wikipedia/wikipedia.module';
 
+/**
+ * POI Module - Simplified for on-demand enrichment only
+ * 
+ * Provides a single endpoint: GET /api/pois/enrich?name=X
+ * No database dependencies required (pure Wikipedia enrichment)
+ */
 @Module({
-  imports: [TypeOrmModule.forFeature([PointOfInterest])],
+  imports: [WikipediaModule],
   controllers: [PoisController],
   providers: [PoisService],
   exports: [PoisService],
