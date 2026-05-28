@@ -478,14 +478,23 @@ export class WikipediaService {
 
   async autocomplete(
     query: string,
+    lang: string = 'en',
     limit = 8,
   ): Promise<
-    { title: string; description: string; lat: number | null; lng: number | null }[]
+    { title: string; description: string; lat: number | null; lng: number | null; type: 'city' | 'poi' }[]
   > {
     try {
-      // Use Wikipedia OpenSearch for fast prefix-matching suggestions
+      // Validate and normalize language code (2-letter: en, he, es, fr, etc.)
+      const languageCode = lang.toLowerCase().slice(0, 2);
+      const wikipediaLang = ['en', 'he', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'zh', 'ar'].includes(languageCode)
+        ? languageCode
+        : 'en';
+
+      this.logger.log(`Autocomplete search: "${query}" in ${wikipediaLang} Wikipedia`);
+
+      // Use Wikipedia OpenSearch for fast prefix-matching suggestions in specified language
       const response = await axios.get(
-        'https://en.wikipedia.org/w/api.php',
+        `https://${wikipediaLang}.wikipedia.org/w/api.php`,
         {
           params: {
             action: 'query',
@@ -506,7 +515,7 @@ export class WikipediaService {
       // Fetch coordinates for all results in parallel
       const titles = results.map((r: any) => r.title);
       const coordsResponse = await axios.get(
-        'https://en.wikipedia.org/w/api.php',
+        `https://${wikipediaLang}.wikipedia.org/w/api.php`,
         {
           params: {
             action: 'query',
@@ -530,17 +539,130 @@ export class WikipediaService {
         }
       }
 
+      // City/region keywords for type detection (multilingual)
+      const cityKeywords = [
+        // English
+        'city', 'town', 'village', 'municipality', 'capital', 'metropolitan', 'urban', 'county', 'district', 'province', 'state', 'region', 'territory',
+        // Hebrew
+        'עיר', 'עירייה', 'בירה', 'מטרופולין', 'מחוז', 'מדינה', 'אזור',
+        // Spanish
+        'ciudad', 'municipio', 'capital', 'provincia', 'región',
+        // French
+        'ville', 'commune', 'capitale', 'métropole', 'région',
+        // German
+        'stadt', 'hauptstadt', 'bezirk', 'region',
+      ];
+
       return results.map((r: any) => {
         const coords = coordsMap.get(r.title);
+        const lowerTitle = r.title.toLowerCase();
+        const lowerSnippet = (r.snippet || '').toLowerCase();
+        
+        // Determine type based on title and snippet keywords
+        const isCity = cityKeywords.some(keyword => 
+          lowerTitle.includes(keyword) || lowerSnippet.includes(keyword)
+        );
+
         return {
           title: r.title,
           description: (r.snippet || '').replace(/<[^>]+>/g, '').slice(0, 100),
           lat: coords?.lat ?? null,
           lng: coords?.lng ?? null,
+          type: isCity ? 'city' : 'poi',
         };
       });
     } catch (error) {
-      this.logger.error(`Autocomplete failed for "${query}"`, error);
+      this.logger.error(`Autocomplete failed for "${query}" in ${lang}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Search using Nominatim OpenStreetMap API (proxied through backend)
+   * Provides native, multilingual worldwide search without client-side ATS issues
+   */
+  async searchNominatim(
+    query: string,
+    lang: string = 'en',
+  ): Promise<
+    { title: string; description: string; lat: number | null; lng: number | null; type: 'city' | 'poi' }[]
+  > {
+    try {
+      this.logger.log(`Nominatim search: "${query}" in ${lang}`);
+
+      // Fetch from Nominatim OpenStreetMap API
+      const response = await axios.get(
+        'https://nominatim.openstreetmap.org/search',
+        {
+          params: {
+            q: query.trim(),
+            format: 'json',
+            addressdetails: '1',
+            limit: '8',
+            'accept-language': lang,
+          },
+          headers: {
+            'User-Agent': 'Hearby/1.0',
+          },
+          timeout: 8000,
+        },
+      );
+
+      const results = response.data;
+
+      if (!Array.isArray(results) || results.length === 0) {
+        return [];
+      }
+
+      // City/region classification keywords
+      const cityTypes = [
+        'city', 'town', 'village', 'municipality', 'administrative',
+        'state', 'province', 'region', 'county', 'district',
+      ];
+
+      const poiTypes = [
+        'tourism', 'museum', 'monument', 'memorial', 'attraction',
+        'place_of_worship', 'church', 'mosque', 'synagogue', 'temple',
+        'castle', 'palace', 'fort', 'ruins', 'archaeological_site',
+        'park', 'garden', 'viewpoint', 'beach', 'stadium',
+      ];
+
+      return results.map((item: any) => {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+
+        // Determine type based on OSM class and type
+        const osmClass = item.class?.toLowerCase() || '';
+        const osmType = item.type?.toLowerCase() || '';
+
+        // Check if it's a POI
+        const isPoi = poiTypes.some(
+          (type) => osmClass.includes(type) || osmType.includes(type)
+        );
+
+        // Check if it's a city/region
+        const isCity =
+          osmClass === 'place' ||
+          osmClass === 'boundary' ||
+          cityTypes.some((type) => osmType.includes(type));
+
+        // Generate clean title
+        const title = item.name || item.display_name.split(',')[0];
+
+        // Generate description
+        const descriptionParts = item.display_name.split(',').slice(1, 3);
+        const description = descriptionParts.join(',').trim();
+
+        return {
+          title,
+          description,
+          lat,
+          lng,
+          type: isPoi ? 'poi' : isCity ? 'city' : 'poi',
+        };
+      });
+    } catch (error) {
+      this.logger.error(`Nominatim search failed for "${query}"`, error);
       return [];
     }
   }

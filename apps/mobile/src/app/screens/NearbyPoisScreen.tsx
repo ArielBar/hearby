@@ -5,6 +5,7 @@ import {
   Keyboard,
   NativeEventEmitter,
   NativeModules,
+  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -21,6 +22,37 @@ const ttsEmitter = new NativeEventEmitter(HearbyTts);
 
 // Backend API call
 const BASE_URL = 'http://localhost:3000/api';
+
+/**
+ * Detect device language (2-letter code)
+ * Returns 'he', 'en', 'es', etc. Defaults to 'en'.
+ */
+function getDeviceLanguage(): string {
+  try {
+    // iOS: Use NativeModules.SettingsManager
+    if (Platform.OS === 'ios') {
+      const locale =
+        NativeModules.SettingsManager?.settings?.AppleLocale ||
+        NativeModules.SettingsManager?.settings?.AppleLanguages?.[0];
+      if (locale) {
+        return locale.split('_')[0].split('-')[0].toLowerCase();
+      }
+    }
+
+    // Android: Use I18nManager
+    if (Platform.OS === 'android') {
+      const locale = NativeModules.I18nManager?.localeIdentifier;
+      if (locale) {
+        return locale.split('_')[0].split('-')[0].toLowerCase();
+      }
+    }
+  } catch (error) {
+    console.warn('[Language Detection] Failed to detect device language:', error);
+  }
+
+  // Fallback to English
+  return 'en';
+}
 
 interface EnrichResult {
   name: string;
@@ -39,6 +71,7 @@ interface AutocompleteResult {
   description: string;
   lat: number | null;
   lng: number | null;
+  type: 'city' | 'poi';
 }
 
 /**
@@ -62,26 +95,48 @@ async function fetchPoiEnrichment(
 }
 
 /**
- * Fetch autocomplete suggestions from Wikipedia
+ * Fetch autocomplete suggestions using backend proxy to Nominatim
+ * Backend handles the Nominatim API call, avoiding iOS ATS issues
+ * Provides native, multilingual worldwide search
  */
-async function fetchAutocomplete(query: string): Promise<AutocompleteResult[]> {
+async function fetchAutocomplete(
+  query: string,
+  language: string,
+): Promise<AutocompleteResult[]> {
   if (!query || query.trim().length < 2) {
     return [];
   }
 
-  const params = new URLSearchParams({ query: query.trim() });
-  const res = await fetch(`${BASE_URL}/wikipedia/autocomplete?${params}`);
+  try {
+    // Call our backend proxy endpoint instead of Nominatim directly
+    const params = new URLSearchParams({
+      query: query.trim(),
+      lang: language,
+    });
 
-  if (!res.ok) {
+    const res = await fetch(
+      `${BASE_URL}/wikipedia/nominatim-search?${params}`
+    );
+
+    if (!res.ok) {
+      console.warn('[Autocomplete] Backend proxy request failed:', res.status);
+      return [];
+    }
+
+    const results = await res.json();
+    return Array.isArray(results) ? results : [];
+  } catch (error) {
+    console.error('[Autocomplete] Failed to fetch from backend proxy:', error);
     return [];
   }
-
-  return res.json();
 }
 
 export function NearbyPoisScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
+
+  // Detect device language once on mount (for Nominatim accept-language header)
+  const [deviceLanguage] = useState(() => getDeviceLanguage());
 
   // Core state: selected coordinate and temp marker coords
   const [selectedCoordinate, setSelectedCoordinate] =
@@ -92,11 +147,16 @@ export function NearbyPoisScreen() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   // TTS playback state
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+
+  // Log detected language on mount
+  useEffect(() => {
+    console.log('[NearbyPoisScreen] Device language for search:', deviceLanguage);
+  }, [deviceLanguage]);
 
   // Targeted fetch: only when coordinate is selected
   const { data: poiData, isLoading } = useQuery({
@@ -111,11 +171,11 @@ export function NearbyPoisScreen() {
     gcTime: 7 * 24 * 60 * 60 * 1000,
   });
 
-  // Autocomplete search query - debounced
+  // Autocomplete search query - uses Nominatim OpenStreetMap API
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
-    queryKey: ['autocomplete', searchQuery],
-    queryFn: () => fetchAutocomplete(searchQuery),
-    enabled: searchQuery.trim().length >= 2 && showSearchResults,
+    queryKey: ['autocomplete', searchQuery, deviceLanguage],
+    queryFn: () => fetchAutocomplete(searchQuery, deviceLanguage),
+    enabled: searchQuery.trim().length >= 2 && isSearchFocused,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
@@ -170,13 +230,13 @@ export function NearbyPoisScreen() {
     [isPaused],
   );
 
-  // Handle search result selection
+  // Handle search result selection with smart zoom based on type
   const handleSearchResultSelect = useCallback((result: AutocompleteResult) => {
-    console.log('[NearbyPoisScreen] Search result selected:', result.title);
+    console.log('[NearbyPoisScreen] Search result selected:', result.title, result.type);
 
-    // Clear search UI
+    // Exit search focus mode
     setSearchQuery('');
-    setShowSearchResults(false);
+    setIsSearchFocused(false);
     Keyboard.dismiss();
 
     // Check if result has coordinates
@@ -190,25 +250,53 @@ export function NearbyPoisScreen() {
       longitude: result.lng,
     };
 
-    // Animate map camera to destination (fly-to effect)
-    mapRef.current?.animateToRegion(
-      {
-        latitude: coordinate.latitude,
-        longitude: coordinate.longitude,
-        latitudeDelta: 0.01, // Zoomed in for landmark view
-        longitudeDelta: 0.01,
-      },
-      1500, // 1.5 second animation
-    );
-
-    // Set marker and trigger POI enrichment automatically
-    setTempMarkerCoords(coordinate);
-    setSelectedCoordinate(coordinate);
-
     // Stop any current playback
     HearbyTts.stop();
     setIsPlaying(false);
     setIsPaused(false);
+
+    if (result.type === 'city') {
+      // City: Wide zoom, no marker, no audio sheet
+      console.log('[NearbyPoisScreen] Flying to city with wide zoom');
+      
+      mapRef.current?.animateToRegion(
+        {
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude,
+          latitudeDelta: 0.12, // Wide view for cities
+          longitudeDelta: 0.12,
+        },
+        1500,
+      );
+
+      // Clear any existing marker/selection (don't trigger POI fetch)
+      setTempMarkerCoords(null);
+      setSelectedCoordinate(null);
+    } else {
+      // POI: Tight zoom, place marker, trigger audio sheet
+      console.log('[NearbyPoisScreen] Flying to POI with tight zoom');
+      
+      mapRef.current?.animateToRegion(
+        {
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude,
+          latitudeDelta: 0.008, // Immersive zoom for landmarks
+          longitudeDelta: 0.008,
+        },
+        1500,
+      );
+
+      // Set marker and trigger POI enrichment automatically
+      setTempMarkerCoords(coordinate);
+      setSelectedCoordinate(coordinate);
+    }
+  }, []);
+
+  // Cancel search - return to map
+  const handleCancelSearch = useCallback(() => {
+    setSearchQuery('');
+    setIsSearchFocused(false);
+    Keyboard.dismiss();
   }, []);
 
   // Close bottom sheet and clear selection
@@ -275,78 +363,92 @@ export function NearbyPoisScreen() {
         )}
       </MapView>
 
-      {/* Global Search Bar - Floating at Top */}
-      <View style={[styles.searchContainer, { top: insets.top + 12 }]}>
-        <View style={styles.searchInputWrapper}>
-          <Text style={styles.searchIcon}>🔍</Text>
+      {/* Apple Maps-Style Global Search */}
+      <View
+        style={[
+          styles.searchOverlay,
+          isSearchFocused && styles.searchOverlayFocused,
+          { paddingTop: insets.top + 8 },
+        ]}
+      >
+        <View style={styles.searchBar}>
+          <View style={styles.searchIconContainer}>
+            <Text style={styles.searchIcon}>🔍</Text>
+          </View>
           <TextInput
             style={styles.searchInput}
-            placeholder="חפש יעד תיירותי בעולם..."
-            placeholderTextColor="#94a3b8"
+            placeholder="חפש או חקור מקומות"
+            placeholderTextColor="#8e8e93"
             value={searchQuery}
             onChangeText={setSearchQuery}
-            onFocus={() => setShowSearchResults(true)}
-            onBlur={() => {
-              // Delay to allow result selection
-              setTimeout(() => setShowSearchResults(false), 200);
-            }}
+            onFocus={() => setIsSearchFocused(true)}
             returnKeyType="search"
             autoCapitalize="none"
             autoCorrect={false}
           />
-          {searchQuery.length > 0 && (
+          {isSearchFocused && (
             <TouchableOpacity
-              onPress={() => {
-                setSearchQuery('');
-                setShowSearchResults(false);
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={handleCancelSearch}
+              style={styles.cancelButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.clearIcon}>✕</Text>
+              <Text style={styles.cancelText}>ביטול</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Search Results Dropdown */}
-        {showSearchResults && searchQuery.trim().length >= 2 && (
-          <View style={styles.searchResultsContainer}>
+        {/* Apple Maps-Style Results */}
+        {isSearchFocused && searchQuery.trim().length >= 2 && (
+          <View style={styles.resultsContainer}>
             {isSearching ? (
-              <View style={styles.searchLoadingContainer}>
-                <ActivityIndicator size="small" color="#6366f1" />
-                <Text style={styles.searchLoadingText}>מחפש...</Text>
+              <View style={styles.loadingState}>
+                <ActivityIndicator size="small" color="#007aff" />
               </View>
             ) : searchResults.length > 0 ? (
               <FlatList
                 data={searchResults}
                 keyExtractor={(item, index) => `${item.title}-${index}`}
                 keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => (
                   <TouchableOpacity
-                    style={styles.searchResultItem}
+                    style={styles.resultRow}
                     onPress={() => handleSearchResultSelect(item)}
-                    activeOpacity={0.7}
+                    activeOpacity={0.6}
                   >
-                    <View style={styles.searchResultContent}>
-                      <Text style={styles.searchResultTitle} numberOfLines={1}>
+                    {/* Icon based on type */}
+                    <View style={styles.resultIconContainer}>
+                      <Text style={styles.resultIcon}>
+                        {item.type === 'city' ? '🌐' : '📍'}
+                      </Text>
+                    </View>
+
+                    {/* Text Content */}
+                    <View style={styles.resultTextContainer}>
+                      <Text style={styles.resultTitle} numberOfLines={1}>
                         {item.title}
                       </Text>
                       {item.description && (
-                        <Text style={styles.searchResultDesc} numberOfLines={2}>
-                          {item.description.replace(/<[^>]*>/g, '')}
+                        <Text style={styles.resultSubtitle} numberOfLines={2}>
+                          {item.description}
                         </Text>
                       )}
-                      {!item.lat || !item.lng ? (
-                        <Text style={styles.noLocationBadge}>אין מיקום</Text>
-                      ) : null}
+                      {(!item.lat || !item.lng) && (
+                        <Text style={styles.noLocationLabel}>אין מיקום זמין</Text>
+                      )}
                     </View>
-                    <Text style={styles.searchResultArrow}>←</Text>
+
+                    {/* Chevron Arrow */}
+                    <View style={styles.resultChevron}>
+                      <Text style={styles.chevronIcon}>›</Text>
+                    </View>
                   </TouchableOpacity>
                 )}
-                style={styles.searchResultsList}
+                ItemSeparatorComponent={() => <View style={styles.resultDivider} />}
               />
             ) : (
-              <View style={styles.searchEmptyContainer}>
-                <Text style={styles.searchEmptyText}>לא נמצאו תוצאות</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>לא נמצאו תוצאות</Text>
               </View>
             )}
           </View>
@@ -419,120 +521,148 @@ export function NearbyPoisScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f2f2f7',
   },
   map: {
     flex: 1,
   },
-  // Search Bar Styles
-  searchContainer: {
+  
+  // Apple Maps-Style Search Overlay
+  searchOverlay: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    top: 0,
+    left: 0,
+    right: 0,
     zIndex: 10,
+    paddingHorizontal: 16,
   },
-  searchInputWrapper: {
+  searchOverlayFocused: {
+    backgroundColor: '#f2f2f7',
+    height: '100%',
+    zIndex: 999,
+  },
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    gap: 12,
+  },
+  searchIconContainer: {
+    position: 'absolute',
+    left: 12,
+    zIndex: 1,
   },
   searchIcon: {
     fontSize: 18,
-    marginRight: 8,
+    opacity: 0.5,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
-    color: '#1e293b',
-    textAlign: 'right',
-    padding: 0,
-  },
-  clearIcon: {
-    fontSize: 16,
-    color: '#94a3b8',
-    fontWeight: '700',
-    marginLeft: 8,
-  },
-  searchResultsContainer: {
-    marginTop: 8,
+    height: 44,
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: 10,
+    paddingHorizontal: 40,
+    fontSize: 17,
+    color: '#000000',
+    textAlign: 'right',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-    maxHeight: 320,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cancelButton: {
+    paddingVertical: 8,
+  },
+  cancelText: {
+    fontSize: 17,
+    color: '#007aff',
+    fontWeight: '400',
+  },
+
+  // Results Container
+  resultsContainer: {
+    marginTop: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    maxHeight: '80%',
   },
-  searchResultsList: {
-    maxHeight: 320,
-  },
-  searchLoadingContainer: {
-    flexDirection: 'row',
+  loadingState: {
+    paddingVertical: 40,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 24,
-    gap: 12,
   },
-  searchLoadingText: {
-    fontSize: 14,
-    color: '#64748b',
+  emptyState: {
+    paddingVertical: 40,
+    alignItems: 'center',
   },
-  searchResultItem: {
+  emptyText: {
+    fontSize: 17,
+    color: '#8e8e93',
+  },
+
+  // Result Row (Apple Maps Style)
+  resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    backgroundColor: '#ffffff',
   },
-  searchResultContent: {
-    flex: 1,
+  resultIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#f2f2f7',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
-  searchResultTitle: {
+  resultIcon: {
+    fontSize: 20,
+  },
+  resultTextContainer: {
+    flex: 1,
+    marginRight: 8,
+  },
+  resultTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#000000',
+    marginBottom: 2,
+    textAlign: 'right',
+  },
+  resultSubtitle: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 4,
+    color: '#8e8e93',
+    lineHeight: 20,
     textAlign: 'right',
   },
-  searchResultDesc: {
+  noLocationLabel: {
     fontSize: 13,
-    color: '#64748b',
-    lineHeight: 18,
-    textAlign: 'right',
-  },
-  noLocationBadge: {
-    fontSize: 11,
-    color: '#ef4444',
-    fontWeight: '600',
+    color: '#ff3b30',
     marginTop: 4,
     textAlign: 'right',
   },
-  searchResultArrow: {
-    fontSize: 18,
-    color: '#cbd5e1',
+  resultChevron: {
+    marginLeft: 8,
   },
-  searchEmptyContainer: {
-    paddingVertical: 32,
-    alignItems: 'center',
+  chevronIcon: {
+    fontSize: 24,
+    color: '#c7c7cc',
+    fontWeight: '300',
   },
-  searchEmptyText: {
-    fontSize: 14,
-    color: '#94a3b8',
-    fontWeight: '500',
+  resultDivider: {
+    height: 0.5,
+    backgroundColor: '#c6c6c8',
+    marginLeft: 64, // Align with text, not icon
   },
-  // Bottom Sheet Styles
+
+  // Bottom Sheet Styles (existing)
   bottomSheet: {
     position: 'absolute',
     bottom: 0,

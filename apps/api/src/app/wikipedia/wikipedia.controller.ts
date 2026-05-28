@@ -22,10 +22,24 @@ export class WikipediaController {
   }
 
   @Get('autocomplete')
-  async autocomplete(@Query('query') query: string) {
+  async autocomplete(
+    @Query('query') query: string,
+    @Query('lang') lang: string = 'en',
+  ) {
     if (!query || !query.trim()) {
       return [];
     }
-    return this.wikipediaService.autocomplete(query.trim());
+    return this.wikipediaService.autocomplete(query.trim(), lang || 'en');
+  }
+
+  @Get('nominatim-search')
+  async nominatimSearch(
+    @Query('query') query: string,
+    @Query('lang') lang: string = 'en',
+  ) {
+    if (!query || !query.trim()) {
+      return [];
+    }
+    return this.wikipediaService.searchNominatim(query.trim(), lang || 'en');
   }
 }
