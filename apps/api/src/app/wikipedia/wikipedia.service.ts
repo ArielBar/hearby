@@ -590,6 +590,13 @@ export class WikipediaService {
     try {
       this.logger.log(`Nominatim search: "${query}" in ${lang}`);
 
+      // Build accept-language header with fallbacks for better multilingual support
+      // Format: "primary-language,en;q=0.9,*;q=0.5"
+      // This tells Nominatim: prefer {lang}, fallback to English, then anything
+      const acceptLanguage = lang === 'en' 
+        ? 'en,*;q=0.5' 
+        : `${lang},en;q=0.9,*;q=0.5`;
+
       // Fetch from Nominatim OpenStreetMap API
       const response = await axios.get(
         'https://nominatim.openstreetmap.org/search',
@@ -598,8 +605,10 @@ export class WikipediaService {
             q: query.trim(),
             format: 'json',
             addressdetails: '1',
+            namedetails: '1',  // Get name variations (name:en, name:he, etc.)
+            extratags: '1',    // Get extra tags
             limit: '8',
-            'accept-language': lang,
+            'accept-language': acceptLanguage,
           },
           headers: {
             'User-Agent': 'Hearby/1.0',
@@ -646,8 +655,11 @@ export class WikipediaService {
           osmClass === 'boundary' ||
           cityTypes.some((type) => osmType.includes(type));
 
-        // Generate clean title
-        const title = item.name || item.display_name.split(',')[0];
+        // Prefer English name for better display
+        // Check namedetails for name:en, fallback to name
+        const nameDetails = item.namedetails || {};
+        const englishName = nameDetails['name:en'] || nameDetails['int_name'] || nameDetails['name'];
+        const title = englishName || item.name || item.display_name.split(',')[0];
 
         // Generate description
         const descriptionParts = item.display_name.split(',').slice(1, 3);
@@ -664,6 +676,298 @@ export class WikipediaService {
     } catch (error) {
       this.logger.error(`Nominatim search failed for "${query}"`, error);
       return [];
+    }
+  }
+
+  /**
+   * Reverse geocoding: Get POI name at specific coordinates
+   * Uses Nominatim reverse geocoding API
+   * 
+   * @param lat - Latitude
+   * @param lng - Longitude
+   * @returns POI name and type, or null if not a tourist attraction
+   */
+  async reverseGeocode(
+    lat: number,
+    lng: number,
+  ): Promise<{ name: string; type: 'city' | 'poi' } | null> {
+    try {
+      this.logger.log(`Reverse geocoding: [${lat}, ${lng}]`);
+
+      // Try multiple zoom levels to find named POI
+      // Zoom 18 = very precise (building level)
+      // Zoom 17 = less precise (area level) - better for POIs that are polygons
+      // Zoom 16 = district level
+      // Zoom 15 = larger area level (needed for large parks like Park Güell)
+      // Zoom 14 = neighborhood level (fallback for very large POIs)
+      const zoomLevels = [18, 17, 16, 15, 14];
+      let result = null;
+      
+      for (const zoom of zoomLevels) {
+        try {
+          // Fetch from Nominatim reverse geocoding API
+          const response = await axios.get(
+            'https://nominatim.openstreetmap.org/reverse',
+            {
+              params: {
+                lat: lat.toString(),
+                lon: lng.toString(),
+                format: 'json',
+                addressdetails: '1',
+                namedetails: '1', // Get all name variations (name:en, name:he, etc.)
+                extratags: '1', // Get extra tags like wikidata
+                zoom: zoom.toString(),
+              },
+              headers: {
+                'User-Agent': 'Hearby/1.0',
+              },
+              timeout: 8000,
+            },
+          );
+
+          const data = response.data;
+          
+          // Check if we got a named POI (not just a building/house without name)
+          // Skip plain roads/streets — they're never tourist-relevant and a lower
+          // zoom level will return the actual landmark or neighborhood
+          if (data && data.name && data.name.trim() !== '') {
+            const dataClass = data.class?.toLowerCase() || '';
+            const dataType = data.type?.toLowerCase() || '';
+            const isPlainRoad = dataClass === 'highway' && 
+              ['primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified', 'trunk', 'motorway'].includes(dataType);
+            
+            if (isPlainRoad) {
+              this.logger.debug(`Zoom ${zoom}: Skipping road "${data.name}" (${dataClass}/${dataType})`);
+              continue;
+            }
+            
+            result = data;
+            this.logger.debug(`Found POI at zoom ${zoom}: "${data.name}" (${dataClass}/${dataType})`);
+            break; // Found a named POI, stop trying other zoom levels
+          } else {
+            this.logger.debug(
+              `Zoom ${zoom}: No named POI (type: ${data?.type}, class: ${data?.class})`
+            );
+          }
+        } catch (error) {
+          this.logger.warn(`Reverse geocoding failed at zoom ${zoom}:`, error);
+        }
+      }
+
+      if (!result || !result.name) {
+        this.logger.debug(`No named POI found at [${lat}, ${lng}] (tried zoom levels: ${zoomLevels.join(', ')})`);
+        return null;
+      }
+
+      // Extract OSM tags for classification
+      const osmClass = result.class?.toLowerCase() || '';
+      const osmType = result.type?.toLowerCase() || '';
+      
+      // FALLBACK: If we got a generic feature (plaza, path, square, street) or a
+      // boundary/administrative result (neighborhood often named after a landmark),
+      // try a nearby forward search to find the actual tourist POI
+      const genericFeatures = ['square', 'plaza', 'footway', 'path', 'pedestrian', 'living_street', 'steps', 'cycleway'];
+      const isGenericFeature = genericFeatures.includes(osmType) || 
+                                (osmClass === 'highway' && !['motorway', 'trunk', 'primary', 'secondary'].includes(osmType));
+      const isBoundaryAdministrative = osmClass === 'boundary' && osmType === 'administrative';
+      
+      if (isGenericFeature || isBoundaryAdministrative) {
+        this.logger.debug(
+          `Got ${isBoundaryAdministrative ? 'boundary/administrative' : 'generic feature'} "${result.name}" (${osmType}/${osmClass}), trying nearby search for tourist POI`
+        );
+        
+        try {
+          // Use the name from the result to search for actual POI landmarks nearby.
+          // Use structured 'amenity' param to avoid boundary/administrative results dominating.
+          const searchName = (result.name || result.namedetails?.name || '')
+            .replace(/^(la|el|les|los|las|the|le|l'|de|del|di|il)\s+/i, ''); // Strip common articles
+          
+          const nearbySearch = await axios.get(
+            'https://nominatim.openstreetmap.org/search',
+            {
+              params: {
+                amenity: searchName,
+                format: 'json',
+                lat: lat.toString(),
+                lon: lng.toString(),
+                viewbox: `${lng - 0.005},${lat - 0.005},${lng + 0.005},${lat + 0.005}`,
+                limit: '5',
+                addressdetails: '1',
+                namedetails: '1',
+                extratags: '1',
+              },
+              headers: {
+                'User-Agent': 'Hearby/1.0',
+              },
+              timeout: 8000,
+            },
+          );
+          
+          // Find the first tourist-relevant result
+          if (nearbySearch.data && nearbySearch.data.length > 0) {
+            for (const nearby of nearbySearch.data) {
+              const nearbyClass = nearby.class?.toLowerCase() || '';
+              const nearbyType = nearby.type?.toLowerCase() || '';
+              
+              // Check if this is a major tourist attraction/amenity (not another boundary)
+              if (
+                nearbyClass === 'tourism' ||
+                nearbyClass === 'amenity' && nearbyType === 'place_of_worship' ||
+                nearbyClass === 'leisure' && nearbyType === 'park' ||
+                nearbyClass === 'historic' ||
+                nearbyType === 'attraction' ||
+                nearbyType === 'museum' ||
+                nearbyType === 'park'
+              ) {
+                this.logger.debug(`Found tourist POI via nearby search: "${nearby.name || nearby.display_name}" (${nearbyClass}/${nearbyType})`);
+                result = nearby;
+                break;
+              }
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Nearby search failed:`, error);
+          // Continue with original result
+        }
+      }
+      
+      // Re-read class/type after potential fallback replacement
+      const finalOsmClass = result.class?.toLowerCase() || '';
+      const finalOsmType = result.type?.toLowerCase() || '';
+
+      // Prefer English name for better OpenAI recognition
+      // Check namedetails for name:en, fallback to default name
+      const nameDetails = result.namedetails || {};
+      const englishName = nameDetails['name:en'] || nameDetails['int_name'] || nameDetails['name'];
+      const name = englishName || result.name;
+
+      this.logger.debug(
+        `Reverse geocode result: "${name}" (original: "${result.name}") (class: ${finalOsmClass}, type: ${finalOsmType})`
+      );
+
+      // Tourist-relevant POI types (COMPREHENSIVE LIST)
+      const touristTypes = [
+        // Core tourism
+        'tourism', 'attraction', 'museum', 'gallery', 'artwork', 'information',
+        
+        // Historic & cultural
+        'monument', 'memorial', 'historic', 'heritage', 'yes', // 'yes' catches historic=yes
+        'archaeological_site', 'ruins', 'castle', 'palace', 'fort', 'fortress',
+        
+        // Religious sites
+        'place_of_worship', 'church', 'mosque', 'synagogue', 'temple',
+        'cathedral', 'chapel', 'shrine', 'monastery', 'basilica',
+        
+        // Public art & landmarks
+        'fountain', 'statue', 'sculpture', 'landmark', 'mural', 'street_art',
+        
+        // Cultural venues
+        'theatre', 'theater', 'opera', 'concert_hall', 'arena',
+        'events_venue', 'bullring', 'stadium', 'cinema', 'auditorium',
+        
+        // Markets & shopping (famous/historic)
+        'marketplace', 'market', 'market_hall', 'bazaar', 'shopping',
+        'mall', 'shopping_centre', 'shopping_center', 'department_store',
+        'retail', 'commercial', // Large commercial centers
+        
+        // Entertainment & leisure
+        'casino', 'nightclub', 'club', // Entertainment venues
+        'sports_centre', 'fitness', 'recreation', // Recreation centers
+        
+        // Scenic spots & nature
+        'viewpoint', 'observation', 'panoramic', 'lookout',
+        'beach', 'bay', 'coast', 'waterfront', 'promenade',
+        'park', 'garden', 'botanical_garden', 'national_park',
+        'zoo', 'aquarium', 'wildlife', 'nature_reserve',
+        'waterfall', 'geyser', 'hot_spring', 'spring',
+        'lake', 'river', 'stream', 'pond', 'wetland',
+        'mountain', 'peak', 'hill', 'volcano', 'cliff', 'rock',
+        'cave', 'glacier', 'valley',
+        
+        // Transportation landmarks (historic/architectural)
+        'bridge', 'gate', 'tower', 'lighthouse', 'pier', 'harbor',
+        'aqueduct', 'viaduct',
+        
+        // Famous streets & squares
+        'pedestrian', 'footway', 'steps', // Pedestrian streets, stairs (e.g., Spanish Steps)
+        'square', 'plaza', 'piazza', // Famous squares
+        
+        // Historic buildings & districts
+        'building', 'townhall', 'city_hall', 'courthouse',
+        'library', 'university', 'college', // Historic campuses
+        'neighbourhood', 'quarter', 'district', // Historic districts
+        
+        // Unusual tourist attractions
+        'cemetery', 'grave_yard', // Famous cemeteries (e.g., Père Lachaise)
+        'windmill', 'water_mill', 'watermill',
+        'observatory', 'planetarium',
+        'theme_park', 'amusement',
+        'spa', 'hot_spring', 'thermal',
+        
+        // Food & dining (famous restaurants, cafes)
+        'restaurant', 'cafe', 'bar', 'pub', 'food_court',
+        'fast_food', 'ice_cream', 'bakery',
+        
+        // Accommodation (famous hotels)
+        'hotel', 'hostel', 'resort', 'guest_house',
+        
+        // Transportation (famous stations, airports)
+        'aerodrome', 'airport', 'heliport',
+        'ferry_terminal', 'taxi',
+      ];
+
+      // Non-tourist types (exclude these - minimal list)
+      // Note: We're now very permissive - most named places are considered tourist-relevant
+      const excludedTypes = [
+        'office', 'residential', 'apartment', 'house',
+        'school', 'hospital', 'clinic',
+        'parking', 'fuel', 'atm', 'bank', 'post_office', 'pharmacy',
+        'road', 'street', 'path',
+        'railway', 'station', 'bus_stop',
+      ];
+
+      // Check if it's a tourist attraction
+      const isTourist = touristTypes.some(
+        (type) => finalOsmClass.includes(type) || finalOsmType.includes(type)
+      );
+
+      // Check if it's excluded
+      const isExcluded = excludedTypes.some(
+        (type) => finalOsmClass.includes(type) || finalOsmType.includes(type)
+      );
+
+      if (isExcluded) {
+        this.logger.debug(
+          `Excluded non-tourist location: "${name}" (${finalOsmClass}/${finalOsmType})`
+        );
+        return null;
+      }
+
+      if (!isTourist) {
+        // Not clearly a tourist attraction
+        this.logger.debug(
+          `Not a tourist attraction: "${name}" (${finalOsmClass}/${finalOsmType})`
+        );
+        return null;
+      }
+
+      // Determine if it's a city or POI
+      const isCity = finalOsmClass === 'place' && ['city', 'town', 'village'].includes(finalOsmType);
+
+      this.logger.log(
+        `✓ Found tourist POI: "${name}" at [${lat}, ${lng}]`
+      );
+
+      return {
+        name,
+        type: isCity ? 'city' : 'poi',
+      };
+    } catch (error) {
+      this.logger.error(
+        `Reverse geocoding failed for [${lat}, ${lng}]`,
+        error instanceof Error ? error.message : error
+      );
+      return null;
     }
   }
 }

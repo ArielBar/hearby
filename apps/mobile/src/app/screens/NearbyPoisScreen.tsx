@@ -56,9 +56,7 @@ function getDeviceLanguage(): string {
 
 interface EnrichResult {
   name: string;
-  category: string;
-  summary: string;
-  url: string;
+  masterScript: string;
 }
 
 interface Coordinate {
@@ -310,7 +308,7 @@ export function NearbyPoisScreen() {
 
   // Play/pause TTS handler
   const handlePlayPause = useCallback(() => {
-    if (!poiData?.summary) return;
+    if (!poiData?.masterScript) return;
 
     if (isPlaying) {
       if (isPaused) {
@@ -320,13 +318,14 @@ export function NearbyPoisScreen() {
       }
     } else {
       // Start new playback with language detection
+      // Master script is always in English (from OpenAI)
       const hebrewPattern = /[\u0590-\u05FF]/;
-      const hasHebrew = hebrewPattern.test(poiData.summary);
+      const hasHebrew = hebrewPattern.test(poiData.masterScript);
       const lang = hasHebrew ? 'he-IL' : 'en-US';
 
       try {
         HearbyTts.setLanguage(lang);
-        HearbyTts.speak(poiData.summary);
+        HearbyTts.speak(poiData.masterScript);
         setIsPlaying(true);
         setIsPaused(false);
       } catch (err) {
@@ -485,7 +484,7 @@ export function NearbyPoisScreen() {
           )}
 
           {/* Condition A: Audio content available */}
-          {!isLoading && poiData?.summary && (
+          {!isLoading && poiData?.masterScript && (
             <View style={styles.audioContainer}>
               <TouchableOpacity
                 style={[
@@ -506,7 +505,7 @@ export function NearbyPoisScreen() {
           )}
 
           {/* Condition B: No audio content */}
-          {!isLoading && !poiData?.summary && (
+          {!isLoading && !poiData?.masterScript && (
             <View style={styles.noAudioContainer}>
               <Text style={styles.mutedIcon}>🔇</Text>
               <Text style={styles.noAudioText}>אין תוכן שמע זמין למקום זה</Text>

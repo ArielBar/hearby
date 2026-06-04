@@ -3,10 +3,12 @@ import { Response } from 'express';
 import { PoisService, EnrichResult } from './pois.service';
 
 /**
- * POI Controller - Simplified for on-demand enrichment only
+ * POI Controller - AI-powered audio guide enrichment
  * 
  * Single endpoint: GET /api/pois/enrich?lat=X&lng=Y
- * Returns Wikipedia-enriched content for coordinates clicked by users on the map.
+ * Returns OpenAI-generated audio guide scripts for tourist landmarks.
+ * 
+ * Response format: { name: string, masterScript: string }
  */
 @Controller('pois')
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
@@ -14,18 +16,23 @@ export class PoisController {
   constructor(private readonly poisService: PoisService) {}
 
   /**
-   * Enrich a POI by coordinates using Wikipedia's geosearch API
+   * Enrich a POI by coordinates using AI-generated audio script
+   * 
+   * Process:
+   * 1. Reverse geocoding: Find nearest tourist landmark within 50-100m
+   * 2. If found, generate captivating audio guide script using OpenAI
+   * 3. Cache the script for 7 days
    * 
    * @param lat - Latitude (e.g., 31.7767)
    * @param lng - Longitude (e.g., 35.2345)
-   * @returns 200 with enriched data, or 204 if no tourist content found
+   * @returns 200 with { name, masterScript }, or 204 if no tourist landmark found
    */
   @Get('enrich')
   async enrichPoiByCoordinates(
     @Query('lat') lat: string,
     @Query('lng') lng: string,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<EnrichResult | void> {
+    @Res() res: Response,
+  ): Promise<void> {
     if (!lat || !lng) {
       res.status(400).json({ message: 'lat and lng parameters are required' });
       return;
@@ -47,6 +54,7 @@ export class PoisController {
       return;
     }
 
-    return result;
+    // Return 200 with the enriched POI data
+    res.status(200).json(result);
   }
 }

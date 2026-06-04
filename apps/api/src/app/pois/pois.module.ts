@@ -2,15 +2,16 @@ import { Module } from '@nestjs/common';
 import { PoisController } from './pois.controller';
 import { PoisService } from './pois.service';
 import { WikipediaModule } from '../wikipedia/wikipedia.module';
+import { OpenAIModule } from '../openai/openai.module';
 
 /**
- * POI Module - Simplified for on-demand enrichment only
+ * POI Module - AI-powered audio guide enrichment
  * 
- * Provides a single endpoint: GET /api/pois/enrich?name=X
- * No database dependencies required (pure Wikipedia enrichment)
+ * Provides coordinate-based POI enrichment with OpenAI-generated scripts
+ * Endpoint: GET /api/pois/enrich?lat=X&lng=Y
  */
 @Module({
-  imports: [WikipediaModule],
+  imports: [WikipediaModule, OpenAIModule],
   controllers: [PoisController],
   providers: [PoisService],
   exports: [PoisService],

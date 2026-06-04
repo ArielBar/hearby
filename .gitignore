@@ -115,4 +115,5 @@ vite.config.*.timestamp*
 
 .env*
 !.env
-!projects/**/.env*
+!apps/**/.env*
+apps/api/.env
