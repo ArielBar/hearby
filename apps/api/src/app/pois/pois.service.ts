@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { WikipediaService } from '../wikipedia/wikipedia.service';
 import { OpenAIService } from '../openai/openai.service';
 
@@ -10,12 +12,24 @@ export interface EnrichResult {
   masterScript: string;
 }
 
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Round coordinate to ~11m precision (4 decimal places)
+ * This groups nearby taps into the same cache key
+ */
+function roundCoord(val: number): string {
+  return val.toFixed(4);
+}
+
 /**
  * POI Service - Hybrid approach for accuracy + quality
  * 
  * Process:
- * 1. Reverse geocode coordinates to get exact POI name (Nominatim)
- * 2. Send POI name to OpenAI for high-quality script generation
+ * 1. Check Redis cache for previously enriched coordinates
+ * 2. Reverse geocode coordinates to get exact POI name (Nominatim)
+ * 3. Send POI name to OpenAI for high-quality script generation
+ * 4. Store result in Redis for future lookups by any user
  * 
  * Best of both worlds: accurate location identification + AI-generated content
  */
@@ -26,28 +40,33 @@ export class PoisService {
   constructor(
     private readonly wikipediaService: WikipediaService,
     private readonly openaiService: OpenAIService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   /**
-   * Enrich a POI by coordinates using hybrid approach
-   *
-   * Strategy:
-   * 1. Reverse geocode coordinates to get POI name (Nominatim - accurate)
-   * 2. Send POI name to OpenAI for script generation (high-quality)
-   * 3. Cache both steps for 7 days
-   *
-   * This hybrid approach combines Nominatim's geographical accuracy
-   * with OpenAI's high-quality script generation.
-   *
-   * @param lat - Latitude of clicked location
-   * @param lng - Longitude of clicked location
-   * @returns AI-generated audio script or null if no tourist POI found
+   * Enrich a POI by coordinates using hybrid approach with persistent cache
    */
   async enrichPoiByCoordinates(
     lat: number,
     lng: number,
   ): Promise<EnrichResult | null> {
-    this.logger.log(`Enriching POI at coordinates: [${lat}, ${lng}]`);
+    const cacheKey = `poi_enrich_${roundCoord(lat)}_${roundCoord(lng)}`;
+
+    // Check cache first (shared across all users)
+    const cached = await this.cacheManager.get<EnrichResult>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Cache hit for POI at [${lat}, ${lng}]: "${cached.name}"`);
+      return cached;
+    }
+
+    // Check if we already know there's no POI here
+    const isMiss = await this.cacheManager.get(`${cacheKey}_miss`);
+    if (isMiss) {
+      this.logger.debug(`Known non-POI location at [${lat}, ${lng}], skipping`);
+      return null;
+    }
+
+    this.logger.log(`Cache miss - enriching POI at coordinates: [${lat}, ${lng}]`);
 
     try {
       // Step 1: Reverse geocode to get POI name (Nominatim)
@@ -55,6 +74,8 @@ export class PoisService {
 
       if (!poi) {
         this.logger.debug(`No tourist POI found at [${lat}, ${lng}]`);
+        // Cache null result too to avoid repeated lookups for non-POI locations
+        await this.cacheManager.set(`${cacheKey}_miss`, true, ONE_WEEK_MS);
         return null;
       }
 
@@ -76,10 +97,15 @@ export class PoisService {
         `✓ Successfully generated audio script for "${poi.name}" at [${lat}, ${lng}]`,
       );
 
-      return {
+      const result: EnrichResult = {
         name: audioScript.name,
         masterScript: audioScript.masterScript,
       };
+
+      // Store in cache for future lookups by any user
+      await this.cacheManager.set(cacheKey, result, ONE_WEEK_MS);
+
+      return result;
     } catch (error) {
       this.logger.error(
         `Error enriching coordinates [${lat}, ${lng}]`,
