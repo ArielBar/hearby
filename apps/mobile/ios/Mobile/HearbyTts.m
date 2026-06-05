@@ -69,19 +69,54 @@ RCT_EXPORT_METHOD(speak:(NSString *)text) {
     }
     AVSpeechUtterance *utterance = [[AVSpeechUtterance alloc] initWithString:text];
 
-    // Try requested language, fall back to en-US if voice unavailable
-    AVSpeechSynthesisVoice *voice = [AVSpeechSynthesisVoice voiceWithLanguage:self.defaultLanguage];
-    if (!voice) {
-      voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"en-US"];
-    }
+    // Select the most natural-sounding voice available for the language
+    AVSpeechSynthesisVoice *voice = [self bestVoiceForLanguage:self.defaultLanguage];
     utterance.voice = voice;
-    utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.85;
+    utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.88;
+    utterance.pitchMultiplier = 1.05;
+    utterance.preUtteranceDelay = 0.1;
+    utterance.postUtteranceDelay = 0.05;
 
     if (self.hasListeners) {
       [self sendEventWithName:@"tts-start" body:@{@"language": self.defaultLanguage}];
     }
     [self.synthesizer speakUtterance:utterance];
   });
+}
+
+// Select highest quality voice: premium > enhanced > default
+- (AVSpeechSynthesisVoice *)bestVoiceForLanguage:(NSString *)language {
+  NSArray<AVSpeechSynthesisVoice *> *allVoices = [AVSpeechSynthesisVoice speechVoices];
+  
+  AVSpeechSynthesisVoice *premiumVoice = nil;
+  AVSpeechSynthesisVoice *enhancedVoice = nil;
+  AVSpeechSynthesisVoice *defaultVoice = nil;
+
+  for (AVSpeechSynthesisVoice *v in allVoices) {
+    if (![v.language hasPrefix:[language substringToIndex:MIN(2, language.length)]]) {
+      continue;
+    }
+    // Prefer exact language match (e.g., he-IL over he)
+    BOOL exactMatch = [v.language.lowercaseString isEqualToString:language.lowercaseString];
+    
+    if (v.quality == AVSpeechSynthesisVoiceQualityPremium) {
+      if (!premiumVoice || exactMatch) premiumVoice = v;
+    } else if (v.quality == AVSpeechSynthesisVoiceQualityEnhanced) {
+      if (!enhancedVoice || exactMatch) enhancedVoice = v;
+    } else {
+      if (!defaultVoice || exactMatch) defaultVoice = v;
+    }
+  }
+
+  AVSpeechSynthesisVoice *best = premiumVoice ?: enhancedVoice ?: defaultVoice;
+  if (best) {
+    NSLog(@"[HearbyTts] Using voice: %@ (quality: %ld)", best.name, (long)best.quality);
+    return best;
+  }
+
+  // Final fallback
+  return [AVSpeechSynthesisVoice voiceWithLanguage:language]
+    ?: [AVSpeechSynthesisVoice voiceWithLanguage:@"en-US"];
 }
 
 RCT_EXPORT_METHOD(stop) {
