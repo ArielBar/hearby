@@ -7,6 +7,7 @@ import {
   NativeEventEmitter,
   NativeModules,
   SafeAreaView,
+  Settings,
   StyleSheet,
   Text,
   TextInput,
@@ -16,42 +17,64 @@ import {
 import MapView, { Marker } from 'react-native-maps';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
 
 // Backend API call
 const BASE_URL = 'http://localhost:3000/api';
 
-const SUPPORTED_LANGUAGES = [
-  { code: 'en', label: '🇬🇧 EN' },
-  { code: 'he', label: '🇮🇱 HE' },
-  { code: 'es', label: '🇪🇸 ES' },
-  { code: 'fr', label: '🇫🇷 FR' },
-  { code: 'de', label: '🇩🇪 DE' },
-  { code: 'it', label: '🇮🇹 IT' },
-  { code: 'pt', label: '🇵🇹 PT' },
-  { code: 'ar', label: '🇸🇦 AR' },
-  { code: 'ru', label: '🇷🇺 RU' },
-  { code: 'ja', label: '🇯🇵 JA' },
-  { code: 'zh', label: '🇨🇳 ZH' },
-];
+const LANG_FLAGS: Record<string, string> = {
+  en: '🇬🇧', he: '🇮🇱', es: '🇪🇸', fr: '🇫🇷', de: '🇩🇪',
+  it: '🇮🇹', pt: '🇵🇹', ar: '🇸🇦', ru: '🇷🇺', ja: '🇯🇵',
+  zh: '🇨🇳', ko: '🇰🇷', nl: '🇳🇱', pl: '🇵🇱', tr: '🇹🇷',
+  th: '🇹🇭', hi: '🇮🇳', sv: '🇸🇪', da: '🇩🇰', fi: '🇫🇮',
+  no: '🇳🇴', uk: '🇺🇦', el: '🇬🇷', cs: '🇨🇿', ro: '🇷🇴',
+  hu: '🇭🇺', id: '🇮🇩', ms: '🇲🇾', vi: '🇻🇳',
+};
 
 /**
- * Detect device language (2-letter code)
- * Returns 'he', 'en', 'es', etc. Defaults to 'en'.
+ * Get preferred languages from device settings (iOS: AppleLanguages)
+ * Returns array of {code, label} based on the user's language preferences
+ */
+function getDevicePreferredLanguages(): { code: string; label: string }[] {
+  try {
+    // Try RN Settings API (works with new architecture)
+    const appleLanguages: string[] | undefined =
+      Settings.get('AppleLanguages') as string[] | undefined;
+
+    console.log('[Lang] Settings.get AppleLanguages:', appleLanguages);
+
+    if (appleLanguages && appleLanguages.length > 0) {
+      const seen = new Set<string>();
+      return appleLanguages
+        .map(locale => locale.split('_')[0].split('-')[0].toLowerCase())
+        .filter(code => {
+          if (seen.has(code)) return false;
+          seen.add(code);
+          return true;
+        })
+        .map(code => ({
+          code,
+          label: `${LANG_FLAGS[code] || '🌐'} ${code.toUpperCase()}`,
+        }));
+    }
+  } catch (e) {
+    console.log('[Lang] Error:', e);
+  }
+  // Fallback
+  return [
+    { code: 'he', label: '🇮🇱 HE' },
+    { code: 'en', label: '🇬🇧 EN' },
+  ];
+}
+
+/**
+ * Detect device language (first preferred language)
  */
 function getDeviceLanguage(): string {
-  try {
-    const locale =
-      NativeModules.SettingsManager?.settings?.AppleLocale ||
-      NativeModules.SettingsManager?.settings?.AppleLanguages?.[0];
-    if (locale) {
-      return locale.split('_')[0].split('-')[0].toLowerCase();
-    }
-  } catch {
-    // ignore
-  }
-  return 'en';
+  const langs = getDevicePreferredLanguages();
+  return langs[0]?.code || 'en';
 }
 
 interface EnrichResult {
@@ -138,6 +161,21 @@ export function NearbyPoisScreen() {
   // Detect device language once on mount (for Nominatim accept-language header)
   const [deviceLanguage, setDeviceLanguage] = useState(() => getDeviceLanguage());
   const [showLangPicker, setShowLangPicker] = useState(false);
+  const [preferredLanguages] = useState(() => getDevicePreferredLanguages());
+
+  // Load persisted language preference on mount
+  useEffect(() => {
+    AsyncStorage.getItem('hearby_lang').then(saved => {
+      if (saved) setDeviceLanguage(saved);
+    });
+  }, []);
+
+  // Persist language when user changes it
+  const handleLanguageChange = useCallback((code: string) => {
+    setDeviceLanguage(code);
+    setShowLangPicker(false);
+    AsyncStorage.setItem('hearby_lang', code);
+  }, []);
 
   // Core state: selected coordinate and temp marker coords
   const [selectedCoordinate, setSelectedCoordinate] =
@@ -388,7 +426,7 @@ export function NearbyPoisScreen() {
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           >
             <Text style={styles.langSelectorText}>
-              {SUPPORTED_LANGUAGES.find(l => l.code === deviceLanguage)?.label || deviceLanguage.toUpperCase()}
+              {preferredLanguages.find(l => l.code === deviceLanguage)?.label || `🌐 ${deviceLanguage.toUpperCase()}`}
             </Text>
             <Text style={styles.langSelectorArrow}>▼</Text>
           </TouchableOpacity>
@@ -548,17 +586,14 @@ export function NearbyPoisScreen() {
         >
           <View style={styles.langModalContent}>
             <Text style={styles.langModalTitle}>Select Language</Text>
-            {SUPPORTED_LANGUAGES.map(lang => (
+            {preferredLanguages.map(lang => (
               <TouchableOpacity
                 key={lang.code}
                 style={[
                   styles.langOption,
                   lang.code === deviceLanguage && styles.langOptionSelected,
                 ]}
-                onPress={() => {
-                  setDeviceLanguage(lang.code);
-                  setShowLangPicker(false);
-                }}
+                onPress={() => handleLanguageChange(lang.code)}
               >
                 <Text style={[
                   styles.langOptionText,
