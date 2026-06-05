@@ -189,12 +189,22 @@ export function NearbyPoisScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<AutocompleteResult[]>([]);
 
   // Debounce search input (500ms) to avoid Nominatim 429 rate limits
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 500);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Load recent searches from storage on mount
+  useEffect(() => {
+    AsyncStorage.getItem('hearby_recents').then(val => {
+      if (val) {
+        try { setRecentSearches(JSON.parse(val)); } catch {}
+      }
+    });
+  }, []);
 
   // TTS playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -290,6 +300,13 @@ export function NearbyPoisScreen() {
 
   // Handle search result selection with smart zoom based on type
   const handleSearchResultSelect = useCallback((result: AutocompleteResult) => {
+    // Save to recent searches (max 8, no duplicates)
+    setRecentSearches(prev => {
+      const filtered = prev.filter(r => r.title !== result.title);
+      const updated = [result, ...filtered].slice(0, 8);
+      AsyncStorage.setItem('hearby_recents', JSON.stringify(updated));
+      return updated;
+    });
     console.log('[NearbyPoisScreen] Search result selected:', result.title, result.type);
 
     // Exit search focus mode
@@ -479,8 +496,33 @@ export function NearbyPoisScreen() {
         {/* State A: Default View (empty query) */}
         {!searchQuery.trim() && (
           <View style={styles.defaultContent}>
+            {/* Recent Searches */}
+            {recentSearches.length > 0 && (
+              <>
+                <Text style={styles.sectionTitle}>אחרונים</Text>
+                {recentSearches.map((item, idx) => (
+                  <TouchableOpacity
+                    key={`recent-${idx}`}
+                    style={styles.recentRow}
+                    activeOpacity={0.6}
+                    onPress={() => handleSearchResultSelect(item)}
+                  >
+                    <View style={styles.recentIcon}>
+                      <Text style={styles.recentIconText}>🕐</Text>
+                    </View>
+                    <Text style={styles.recentLabel} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text style={styles.categoryChevron}>‹</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+
             {/* Nearby Exploration Section */}
-            <Text style={styles.sectionTitle}>חיפוש בסביבה</Text>
+            <Text style={[styles.sectionTitle, recentSearches.length > 0 && { marginTop: 20 }]}>
+              חיפוש בסביבה
+            </Text>
             <TouchableOpacity
               style={styles.categoryRow}
               activeOpacity={0.6}
@@ -788,6 +830,30 @@ const styles = StyleSheet.create({
     color: '#000',
     textAlign: 'right',
     marginBottom: 14,
+  },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  recentIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E5E5EA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  recentIconText: {
+    fontSize: 14,
+  },
+  recentLabel: {
+    flex: 1,
+    fontSize: 16,
+    color: '#000',
+    textAlign: 'right',
   },
   categoryRow: {
     flexDirection: 'row',
