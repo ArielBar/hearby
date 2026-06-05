@@ -1,29 +1,43 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { redisStore } from 'cache-manager-redis-yet';
+import { ConfigModule } from '@nestjs/config';
+import KeyvRedis from '@keyv/redis';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PoisModule } from './pois/pois.module';
 import { WikipediaModule } from './wikipedia/wikipedia.module';
+import { join } from 'path';
+
+const logger = new Logger('CacheModule');
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [
+        join(process.cwd(), 'apps', 'api', '.env'),
+        join(process.cwd(), '.env'),
+      ],
+    }),
     CacheModule.registerAsync({
       isGlobal: true,
-      inject: [ConfigService],
-      useFactory: async (config: ConfigService) => {
-        const redisUrl = config.get<string>('REDIS_URL');
+      useFactory: (): any => {
+        const redisUrl = process.env.REDIS_URL;
+        const ttl = 7 * 24 * 60 * 60 * 1000;
         if (redisUrl) {
-          const store = await redisStore({
-            url: redisUrl,
-            ttl: 7 * 24 * 60 * 60 * 1000,
-          });
-          return { store } as any;
+          logger.log(`Connecting to Redis at ${redisUrl}...`);
+          try {
+            const store = new KeyvRedis(redisUrl);
+            logger.log('Redis store configured ✓');
+            return { stores: [store], ttl };
+          } catch (error) {
+            logger.error(`Redis setup failed: ${error.message}`);
+            logger.warn('Falling back to in-memory cache');
+            return { ttl };
+          }
         }
-        // Fallback to in-memory cache if no Redis configured
-        return { ttl: 7 * 24 * 60 * 60 * 1000 };
+        logger.warn('No REDIS_URL set, using in-memory cache');
+        return { ttl };
       },
     }),
     PoisModule,

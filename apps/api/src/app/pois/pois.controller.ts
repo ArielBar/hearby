@@ -31,6 +31,7 @@ export class PoisController {
   async enrichPoiByCoordinates(
     @Query('lat') lat: string,
     @Query('lng') lng: string,
+    @Query('lang') lang: string,
     @Res() res: Response,
   ): Promise<void> {
     if (!lat || !lng) {
@@ -46,7 +47,8 @@ export class PoisController {
       return;
     }
 
-    const result = await this.poisService.enrichPoiByCoordinates(latitude, longitude);
+    const language = lang || 'en';
+    const result = await this.poisService.enrichPoiByCoordinates(latitude, longitude, language);
     
     if (!result) {
       // No tourist content found - return 204 No Content

@@ -52,6 +52,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@keyv/redis": "^5.1.6",
     "@nestjs/cache-manager": "^3.1.2",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.4",
@@ -66,7 +67,6 @@
     "@tanstack/react-query": "^5.100.11",
     "axios": "^1.6.0",
     "cache-manager": "^7.2.8",
-    "cache-manager-redis-yet": "^5.1.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "expo-speech": "^56.0.3",
@@ -79,7 +79,6 @@
     "react-native-safe-area-context": "^5.8.0",
     "react-native-screens": "^4.10.0",
     "react-native-tts": "^4.1.1",
-    "redis": "^6.0.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0"
   }
