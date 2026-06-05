@@ -19,7 +19,26 @@ export class WikipediaService {
   private readonly logger = new Logger(WikipediaService.name);
   private readonly timeout = 5000;
 
+  // Rate limiter: max 1 Nominatim request per 1.1 seconds
+  private lastNominatimRequest = 0;
+  private nominatimQueue: Promise<void> = Promise.resolve();
+
   constructor(@Inject(CACHE_MANAGER) private readonly cacheManager: Cache) {}
+
+  /**
+   * Ensures Nominatim requests are spaced at least 1.1s apart
+   */
+  private async waitForNominatimSlot(): Promise<void> {
+    this.nominatimQueue = this.nominatimQueue.then(async () => {
+      const now = Date.now();
+      const elapsed = now - this.lastNominatimRequest;
+      if (elapsed < 1100) {
+        await new Promise(r => setTimeout(r, 1100 - elapsed));
+      }
+      this.lastNominatimRequest = Date.now();
+    });
+    return this.nominatimQueue;
+  }
 
   async getSummaryByName(name: string): Promise<WikipediaSummary | null> {
     const cacheKey = `wiki_name_${name.trim().toLowerCase()}`;
@@ -421,7 +440,7 @@ export class WikipediaService {
         dist: r.dist,
       }));
     } catch (error) {
-      this.logger.error(`GeoSearch failed for [${lat}, ${lng}]`, error);
+      this.logger.error(`GeoSearch failed for [${lat}, ${lng}]: ${error instanceof Error ? error.message : error}`);
       return [];
     }
   }
@@ -572,7 +591,7 @@ export class WikipediaService {
         };
       });
     } catch (error) {
-      this.logger.error(`Autocomplete failed for "${query}" in ${lang}`, error);
+      this.logger.error(`Autocomplete failed for "${query}" in ${lang}: ${error instanceof Error ? error.message : error}`);
       return [];
     }
   }
@@ -597,7 +616,8 @@ export class WikipediaService {
         ? 'en,*;q=0.5' 
         : `${lang},en;q=0.9,*;q=0.5`;
 
-      // Fetch from Nominatim OpenStreetMap API
+      // Fetch from Nominatim OpenStreetMap API (rate-limited)
+      await this.waitForNominatimSlot();
       const response = await axios.get(
         'https://nominatim.openstreetmap.org/search',
         {
@@ -674,7 +694,7 @@ export class WikipediaService {
         };
       });
     } catch (error) {
-      this.logger.error(`Nominatim search failed for "${query}"`, error);
+      this.logger.error(`Nominatim search failed for "${query}": ${error instanceof Error ? error.message : error}`);
       return [];
     }
   }
@@ -705,7 +725,8 @@ export class WikipediaService {
       
       for (const zoom of zoomLevels) {
         try {
-          // Fetch from Nominatim reverse geocoding API
+          // Fetch from Nominatim reverse geocoding API (rate-limited)
+          await this.waitForNominatimSlot();
           const response = await axios.get(
             'https://nominatim.openstreetmap.org/reverse',
             {
@@ -782,6 +803,7 @@ export class WikipediaService {
           const searchName = (result.name || result.namedetails?.name || '')
             .replace(/^(la|el|les|los|las|the|le|l'|de|del|di|il)\s+/i, ''); // Strip common articles
           
+          await this.waitForNominatimSlot();
           const nearbySearch = await axios.get(
             'https://nominatim.openstreetmap.org/search',
             {

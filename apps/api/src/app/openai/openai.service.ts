@@ -50,7 +50,7 @@ export class OpenAIService {
    * 3. Cache the result for 7 days
    *
    * @param landmarkName - Official name of the tourist landmark
-   * @returns Audio script or null if generation fails
+   * @returns Audio script in English or null if generation fails
    */
   async generateAudioScript(landmarkName: string): Promise<AudioScript | null> {
     try {
@@ -78,10 +78,10 @@ export class OpenAIService {
             content: `Generate a captivating audio guide script for: ${landmarkName}\n\nRespond in this exact format:\nNAME: <official English name of this landmark>\nSCRIPT:\n<your script here>`,
           },
         ],
-        temperature: 0.7, // Balanced creativity
+        temperature: 0.7,
         max_tokens: 600,
-        presence_penalty: 0.3, // Encourage diverse vocabulary
-        frequency_penalty: 0.3, // Reduce repetition
+        presence_penalty: 0.3,
+        frequency_penalty: 0.3,
       });
 
       const rawResponse = completion.choices[0]?.message?.content?.trim();
@@ -129,6 +129,62 @@ export class OpenAIService {
   }
 
   /**
+   * Translate an English audio script to the target language.
+   * Preserves the audio guide tone and pacing.
+   *
+   * @param englishScript - The English master script
+   * @param poiName - POI name (for context)
+   * @param targetLang - Target language code (e.g., 'he', 'es', 'fr')
+   * @returns Translated script string, or null on failure
+   */
+  async translateScript(
+    englishScript: string,
+    poiName: string,
+    targetLang: string,
+  ): Promise<string | null> {
+    try {
+      const langName = this.getLanguageName(targetLang);
+      this.logger.log(`Translating script for "${poiName}" to ${langName}`);
+
+      const completion = await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional translator specializing in tourism and audio guides. Translate the following audio guide script to ${langName}. 
+
+IMPORTANT: Always address the audience in PLURAL form (e.g., in Hebrew use "אתם מטיילים" not "אתה מטייל", in Spanish use "ustedes" not "tú", in French use "vous" plural). The script is for a group of tourists listening together.
+
+Preserve the engaging, storytelling tone, sensory details, and paragraph structure. Keep proper nouns (landmark names, people, places) in their commonly known form in ${langName}. The translation should sound natural when read aloud — it will be used for text-to-speech.`,
+          },
+          {
+            role: 'user',
+            content: englishScript,
+          },
+        ],
+        temperature: 0.3, // Low temperature for accurate translation
+        max_tokens: 800,
+      });
+
+      const translated = completion.choices[0]?.message?.content?.trim();
+
+      if (!translated) {
+        this.logger.warn(`Empty translation response for "${poiName}" → ${langName}`);
+        return null;
+      }
+
+      this.logger.log(`✓ Translated "${poiName}" to ${langName}`);
+      return translated;
+    } catch (error) {
+      this.logger.error(
+        `Translation failed for "${poiName}" → ${targetLang}`,
+        error instanceof Error ? error.message : error,
+      );
+      return null;
+    }
+  }
+
+  /**
    * System prompt for audio guide script generation
    *
    * Optimized for:
@@ -156,7 +212,7 @@ STRICT REQUIREMENTS:
    PARAGRAPH 1 - THE HOOK (30-40 words):
    - Start with sensory detail: what tourists SEE/FEEL right now
    - Create immediate emotional connection
-   - Use "you" to make it personal
+   - Address the audience as a GROUP (plural "you" = a group of tourists together)
    - Example: "As you stand in the shadow of this ancient structure, imagine the millions who stood here before you..."
 
    PARAGRAPH 2 - ORIGIN STORY (60-70 words):
@@ -214,5 +270,28 @@ STRICT REQUIREMENTS:
 CRITICAL: Begin directly with the narrative. No titles, no "Welcome to...", no preamble. First word should paint a picture.
 
 Generate the script now.`;
+  }
+
+  private getLanguageName(code: string): string {
+    const languages: Record<string, string> = {
+      he: 'Hebrew',
+      ar: 'Arabic',
+      es: 'Spanish',
+      fr: 'French',
+      de: 'German',
+      it: 'Italian',
+      pt: 'Portuguese',
+      ru: 'Russian',
+      ja: 'Japanese',
+      ko: 'Korean',
+      zh: 'Chinese',
+      nl: 'Dutch',
+      tr: 'Turkish',
+      pl: 'Polish',
+      sv: 'Swedish',
+      th: 'Thai',
+      hi: 'Hindi',
+    };
+    return languages[code] || code;
   }
 }

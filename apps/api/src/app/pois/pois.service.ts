@@ -70,9 +70,11 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
       }
 
       const poiName = results[0]; // English POI name used as geo member
-      const data = await this.redis.get(`${DATA_PREFIX}${poiName}:${lang}`);
+      const key = `${DATA_PREFIX}${poiName}:${lang}`;
+      const data = await this.redis.get(key);
 
       if (!data || typeof data !== 'string') {
+        this.logger.debug(`Geo found "${poiName}" but no data for key "${key}"`);
         return null;
       }
 
@@ -103,12 +105,10 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
       });
 
       // Store enrichment data keyed by language (never expires)
-      await this.redis.set(
-        `${DATA_PREFIX}${memberKey}:${lang}`,
-        JSON.stringify(result),
-      );
+      const dataKey = `${DATA_PREFIX}${memberKey}:${lang}`;
+      await this.redis.set(dataKey, JSON.stringify(result));
 
-      this.logger.debug(`Stored POI "${memberKey}:${lang}" at [${lat}, ${lng}]`);
+      this.logger.log(`Stored POI "${dataKey}" at [${lat}, ${lng}]`);
     } catch (error) {
       this.logger.error(`Failed to store POI: ${error.message}`);
     }
@@ -116,23 +116,51 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Enrich a POI by coordinates — checks geospatial cache first
+   *
+   * Flow:
+   * 1. Check if translated version exists in cache → return
+   * 2. Check if English base exists in cache → translate + store
+   * 3. Otherwise: geocode → generate English → translate → store both
    */
   async enrichPoiByCoordinates(
     lat: number,
     lng: number,
     lang: string = DEFAULT_LANG,
   ): Promise<EnrichResult | null> {
-    // Step 1: Check if a known POI exists within 50m (in requested language)
+    // Step 1: Check if requested language version already cached
     const cached = await this.findNearbyPoi(lat, lng, lang);
     if (cached) {
       this.logger.debug(`Geo cache hit at [${lat}, ${lng}]: "${cached.name}" (${lang})`);
       return cached;
     }
 
+    // Step 2: If non-English, check if English base exists (translate from it)
+    if (lang !== DEFAULT_LANG) {
+      const englishCached = await this.findNearbyPoi(lat, lng, DEFAULT_LANG);
+      if (englishCached) {
+        this.logger.log(`Translating "${englishCached.name}" from en → ${lang}`);
+        const translated = await this.openaiService.translateScript(
+          englishCached.masterScript,
+          englishCached.name,
+          lang,
+        );
+        if (translated) {
+          const result: EnrichResult = {
+            name: englishCached.name,
+            masterScript: translated,
+          };
+          await this.storePoi(lat, lng, result, lang);
+          return result;
+        }
+        // Translation failed, return English as fallback
+        return englishCached;
+      }
+    }
+
     this.logger.log(`Geo cache miss — enriching POI at [${lat}, ${lng}] (${lang})`);
 
     try {
-      // Step 2: Reverse geocode to get POI name (Nominatim)
+      // Step 3: Reverse geocode to get POI name (Nominatim)
       const poi = await this.wikipediaService.reverseGeocode(lat, lng);
 
       if (!poi) {
@@ -142,10 +170,8 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`✓ Identified POI: "${poi.name}" at [${lat}, ${lng}]`);
 
-      // Step 3: Generate AI script (OpenAI) — always in English for now
-      const audioScript = await this.openaiService.generateAudioScript(
-        poi.name,
-      );
+      // Step 4: Generate English base script (always)
+      const audioScript = await this.openaiService.generateAudioScript(poi.name);
 
       if (!audioScript) {
         this.logger.warn(
@@ -154,19 +180,33 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
-      const result: EnrichResult = {
+      // Store English base permanently
+      const englishResult: EnrichResult = {
         name: audioScript.name,
         masterScript: audioScript.masterScript,
       };
+      await this.storePoi(lat, lng, englishResult, DEFAULT_LANG);
 
-      // Step 4: Store permanently in geospatial cache (with language)
-      await this.storePoi(lat, lng, result, lang);
+      // Step 5: If non-English requested, translate
+      if (lang !== DEFAULT_LANG) {
+        const translated = await this.openaiService.translateScript(
+          audioScript.masterScript,
+          audioScript.name,
+          lang,
+        );
+        if (translated) {
+          const translatedResult: EnrichResult = {
+            name: audioScript.name,
+            masterScript: translated,
+          };
+          await this.storePoi(lat, lng, translatedResult, lang);
+          this.logger.log(`✓ Enriched and cached POI "${audioScript.name}:${lang}" at [${lat}, ${lng}]`);
+          return translatedResult;
+        }
+      }
 
-      this.logger.log(
-        `✓ Enriched and cached POI "${result.name}:${lang}" at [${lat}, ${lng}]`,
-      );
-
-      return result;
+      this.logger.log(`✓ Enriched and cached POI "${audioScript.name}:en" at [${lat}, ${lng}]`);
+      return englishResult;
     } catch (error) {
       this.logger.error(
         `Error enriching coordinates [${lat}, ${lng}]`,

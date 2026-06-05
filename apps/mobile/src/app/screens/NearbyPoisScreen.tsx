@@ -3,9 +3,9 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
+  Modal,
   NativeEventEmitter,
   NativeModules,
-  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -16,12 +16,25 @@ import {
 import MapView, { Marker } from 'react-native-maps';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
 
 // Backend API call
 const BASE_URL = 'http://localhost:3000/api';
+
+const SUPPORTED_LANGUAGES = [
+  { code: 'en', label: '🇬🇧 EN' },
+  { code: 'he', label: '🇮🇱 HE' },
+  { code: 'es', label: '🇪🇸 ES' },
+  { code: 'fr', label: '🇫🇷 FR' },
+  { code: 'de', label: '🇩🇪 DE' },
+  { code: 'it', label: '🇮🇹 IT' },
+  { code: 'pt', label: '🇵🇹 PT' },
+  { code: 'ar', label: '🇸🇦 AR' },
+  { code: 'ru', label: '🇷🇺 RU' },
+  { code: 'ja', label: '🇯🇵 JA' },
+  { code: 'zh', label: '🇨🇳 ZH' },
+];
 
 /**
  * Detect device language (2-letter code)
@@ -29,28 +42,15 @@ const BASE_URL = 'http://localhost:3000/api';
  */
 function getDeviceLanguage(): string {
   try {
-    // iOS: Use NativeModules.SettingsManager
-    if (Platform.OS === 'ios') {
-      const locale =
-        NativeModules.SettingsManager?.settings?.AppleLocale ||
-        NativeModules.SettingsManager?.settings?.AppleLanguages?.[0];
-      if (locale) {
-        return locale.split('_')[0].split('-')[0].toLowerCase();
-      }
+    const locale =
+      NativeModules.SettingsManager?.settings?.AppleLocale ||
+      NativeModules.SettingsManager?.settings?.AppleLanguages?.[0];
+    if (locale) {
+      return locale.split('_')[0].split('-')[0].toLowerCase();
     }
-
-    // Android: Use I18nManager
-    if (Platform.OS === 'android') {
-      const locale = NativeModules.I18nManager?.localeIdentifier;
-      if (locale) {
-        return locale.split('_')[0].split('-')[0].toLowerCase();
-      }
-    }
-  } catch (error) {
-    console.warn('[Language Detection] Failed to detect device language:', error);
+  } catch {
+    // ignore
   }
-
-  // Fallback to English
   return 'en';
 }
 
@@ -78,10 +78,12 @@ interface AutocompleteResult {
  */
 async function fetchPoiEnrichment(
   coordinate: Coordinate,
+  lang: string,
 ): Promise<EnrichResult | null> {
   const params = new URLSearchParams({
     lat: coordinate.latitude.toString(),
     lng: coordinate.longitude.toString(),
+    lang,
   });
   const res = await fetch(`${BASE_URL}/pois/enrich?${params}`);
 
@@ -134,7 +136,8 @@ export function NearbyPoisScreen() {
   const mapRef = useRef<MapView>(null);
 
   // Detect device language once on mount (for Nominatim accept-language header)
-  const [deviceLanguage] = useState(() => getDeviceLanguage());
+  const [deviceLanguage, setDeviceLanguage] = useState(() => getDeviceLanguage());
+  const [showLangPicker, setShowLangPicker] = useState(false);
 
   // Core state: selected coordinate and temp marker coords
   const [selectedCoordinate, setSelectedCoordinate] =
@@ -145,7 +148,14 @@ export function NearbyPoisScreen() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  // Debounce search input (500ms) to avoid Nominatim 429 rate limits
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // TTS playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -162,8 +172,9 @@ export function NearbyPoisScreen() {
       'poi',
       selectedCoordinate?.latitude,
       selectedCoordinate?.longitude,
+      deviceLanguage,
     ],
-    queryFn: () => fetchPoiEnrichment(selectedCoordinate!),
+    queryFn: () => fetchPoiEnrichment(selectedCoordinate!, deviceLanguage),
     enabled: !!selectedCoordinate,
     staleTime: 7 * 24 * 60 * 60 * 1000, // 1 week
     gcTime: 7 * 24 * 60 * 60 * 1000,
@@ -171,9 +182,9 @@ export function NearbyPoisScreen() {
 
   // Autocomplete search query - uses Nominatim OpenStreetMap API
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
-    queryKey: ['autocomplete', searchQuery, deviceLanguage],
-    queryFn: () => fetchAutocomplete(searchQuery, deviceLanguage),
-    enabled: searchQuery.trim().length >= 2 && isSearchFocused,
+    queryKey: ['autocomplete', debouncedQuery, deviceLanguage],
+    queryFn: () => fetchAutocomplete(debouncedQuery, deviceLanguage),
+    enabled: debouncedQuery.trim().length >= 2 && isSearchFocused,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
@@ -371,6 +382,16 @@ export function NearbyPoisScreen() {
         ]}
       >
         <View style={styles.searchBar}>
+          <TouchableOpacity
+            style={styles.langSelector}
+            onPress={() => setShowLangPicker(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          >
+            <Text style={styles.langSelectorText}>
+              {SUPPORTED_LANGUAGES.find(l => l.code === deviceLanguage)?.label || deviceLanguage.toUpperCase()}
+            </Text>
+            <Text style={styles.langSelectorArrow}>▼</Text>
+          </TouchableOpacity>
           <View style={styles.searchIconContainer}>
             <Text style={styles.searchIcon}>🔍</Text>
           </View>
@@ -513,6 +534,43 @@ export function NearbyPoisScreen() {
           )}
         </View>
       )}
+      {/* Language Picker Modal */}
+      <Modal
+        visible={showLangPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLangPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.langModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowLangPicker(false)}
+        >
+          <View style={styles.langModalContent}>
+            <Text style={styles.langModalTitle}>Select Language</Text>
+            {SUPPORTED_LANGUAGES.map(lang => (
+              <TouchableOpacity
+                key={lang.code}
+                style={[
+                  styles.langOption,
+                  lang.code === deviceLanguage && styles.langOptionSelected,
+                ]}
+                onPress={() => {
+                  setDeviceLanguage(lang.code);
+                  setShowLangPicker(false);
+                }}
+              >
+                <Text style={[
+                  styles.langOptionText,
+                  lang.code === deviceLanguage && styles.langOptionTextSelected,
+                ]}>
+                  {lang.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -545,9 +603,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  langSelector: {
+    position: 'absolute',
+    left: 8,
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f5',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  langSelectorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  langSelectorArrow: {
+    fontSize: 8,
+    color: '#666',
+    marginLeft: 2,
+  },
   searchIconContainer: {
     position: 'absolute',
-    left: 12,
+    left: 44,
     zIndex: 1,
   },
   searchIcon: {
@@ -559,7 +638,7 @@ const styles = StyleSheet.create({
     height: 44,
     backgroundColor: '#ffffff',
     borderRadius: 10,
-    paddingHorizontal: 40,
+    paddingHorizontal: 68,
     fontSize: 17,
     color: '#000000',
     textAlign: 'right',
@@ -762,5 +841,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#64748b',
+  },
+  langModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  langModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 20,
+    width: 220,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  langModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  langOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  langOptionSelected: {
+    backgroundColor: '#007AFF15',
+  },
+  langOptionText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  langOptionTextSelected: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });
