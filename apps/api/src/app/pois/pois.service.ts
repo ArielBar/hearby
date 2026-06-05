@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { createClient, RedisClientType } from '@redis/client';
+import { createHash } from 'crypto';
 import { SearchService } from '../search/search.service';
 import { OpenAIService } from '../openai/openai.service';
 
@@ -13,6 +14,8 @@ export interface EnrichResult {
 
 const GEO_KEY = 'poi:locations';
 const DATA_PREFIX = 'poi:data:';
+const AUDIO_PREFIX = 'audio:';
+const AUDIO_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const DEFAULT_LANG = 'en';
 const SEARCH_RADIUS_M = 50; // Match within 50 meters
 
@@ -214,5 +217,44 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
       );
       return null;
     }
+  }
+
+  /**
+   * Get or generate TTS audio for text + language combination
+   * Caches the binary audio buffer in Redis for 7 days
+   */
+  async getAudio(text: string, lang: string): Promise<Buffer | null> {
+    const hash = createHash('md5').update(text).digest('hex');
+    const cacheKey = `${AUDIO_PREFIX}${hash}:${lang}`;
+
+    try {
+      // Check Redis cache for existing audio (stored as base64)
+      const cached = await this.redis.get(cacheKey);
+
+      if (cached && typeof cached === 'string') {
+        this.logger.debug(`Audio cache hit: ${cacheKey}`);
+        return Buffer.from(cached, 'base64');
+      }
+    } catch (error) {
+      this.logger.warn(`Audio cache read failed: ${error instanceof Error ? error.message : error}`);
+    }
+
+    // Cache miss — generate via OpenAI TTS
+    this.logger.log(`Generating TTS audio (${lang}), text length: ${text.length}`);
+    const audioBuffer = await this.openaiService.generateSpeech(text, lang);
+
+    if (!audioBuffer) {
+      return null;
+    }
+
+    // Cache in Redis as base64 with 7-day TTL
+    try {
+      await this.redis.set(cacheKey, audioBuffer.toString('base64'), { EX: AUDIO_TTL_SECONDS });
+      this.logger.log(`Cached audio: ${cacheKey} (${audioBuffer.length} bytes)`);
+    } catch (error) {
+      this.logger.warn(`Audio cache write failed: ${error instanceof Error ? error.message : error}`);
+    }
+
+    return audioBuffer;
   }
 }

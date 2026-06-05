@@ -196,6 +196,21 @@ export function NearbyPoisScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
+  // Feature flag: Premium AI Voice (OpenAI TTS) vs on-device Siri-style
+  const [usePremiumVoice, setUsePremiumVoice] = useState(false);
+
+  // Load premium voice preference on mount
+  useEffect(() => {
+    AsyncStorage.getItem('hearby_premium_voice').then(val => {
+      if (val === 'true') setUsePremiumVoice(true);
+    });
+  }, []);
+
+  const handleTogglePremiumVoice = useCallback((enabled: boolean) => {
+    setUsePremiumVoice(enabled);
+    AsyncStorage.setItem('hearby_premium_voice', enabled ? 'true' : 'false');
+  }, []);
+
   // Targeted fetch: only when coordinate is selected
   const { data: poiData, isLoading } = useQuery({
     queryKey: [
@@ -358,22 +373,26 @@ export function NearbyPoisScreen() {
         HearbyTts.pause();
       }
     } else {
-      // Start new playback with language detection
-      // Master script is always in English (from OpenAI)
-      const hebrewPattern = /[\u0590-\u05FF]/;
-      const hasHebrew = hebrewPattern.test(poiData.masterScript);
-      const lang = hasHebrew ? 'he-IL' : 'en-US';
-
-      try {
+      if (usePremiumVoice) {
+        // Stream from OpenAI TTS via backend
+        const params = new URLSearchParams({
+          text: poiData.masterScript,
+          lang: deviceLanguage,
+        });
+        const audioUrl = `${BASE_URL}/pois/audio?${params}`;
+        HearbyTts.playAudioFromURL(audioUrl);
+      } else {
+        // On-device Siri-style TTS
+        const hebrewPattern = /[\u0590-\u05FF]/;
+        const hasHebrew = hebrewPattern.test(poiData.masterScript);
+        const lang = hasHebrew ? 'he-IL' : 'en-US';
         HearbyTts.setLanguage(lang);
         HearbyTts.speak(poiData.masterScript);
-        setIsPlaying(true);
-        setIsPaused(false);
-      } catch (err) {
-        console.error('[TTS] Playback error:', err);
       }
+      setIsPlaying(true);
+      setIsPaused(false);
     }
-  }, [poiData, isPlaying, isPaused]);
+  }, [poiData, isPlaying, isPaused, usePremiumVoice, deviceLanguage]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -595,6 +614,29 @@ export function NearbyPoisScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
+
+            {/* Premium AI Voice Toggle */}
+            <View style={styles.premiumVoiceDivider} />
+            <TouchableOpacity
+              style={styles.premiumVoiceRow}
+              onPress={() => handleTogglePremiumVoice(!usePremiumVoice)}
+            >
+              <Text style={styles.premiumVoiceLabel}>
+                🎙️ Premium AI Voice
+              </Text>
+              <View style={[
+                styles.premiumVoiceToggle,
+                usePremiumVoice && styles.premiumVoiceToggleOn,
+              ]}>
+                <View style={[
+                  styles.premiumVoiceThumb,
+                  usePremiumVoice && styles.premiumVoiceThumbOn,
+                ]} />
+              </View>
+            </TouchableOpacity>
+            <Text style={styles.premiumVoiceHint}>
+              {usePremiumVoice ? 'OpenAI TTS (costs apply)' : 'On-device Siri voice (free)'}
+            </Text>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -909,5 +951,47 @@ const styles = StyleSheet.create({
   langOptionTextSelected: {
     color: '#007AFF',
     fontWeight: '600',
+  },
+  premiumVoiceDivider: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 12,
+  },
+  premiumVoiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  premiumVoiceLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  premiumVoiceToggle: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#cbd5e1',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  premiumVoiceToggleOn: {
+    backgroundColor: '#007AFF',
+  },
+  premiumVoiceThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  premiumVoiceThumbOn: {
+    alignSelf: 'flex-end',
+  },
+  premiumVoiceHint: {
+    fontSize: 11,
+    color: '#94a3b8',
+    marginTop: 6,
+    paddingHorizontal: 4,
   },
 });

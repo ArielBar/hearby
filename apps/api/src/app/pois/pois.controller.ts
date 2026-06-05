@@ -2,31 +2,11 @@ import { Controller, Get, Query, Res, UsePipes, ValidationPipe } from '@nestjs/c
 import { Response } from 'express';
 import { PoisService, EnrichResult } from './pois.service';
 
-/**
- * POI Controller - AI-powered audio guide enrichment
- * 
- * Single endpoint: GET /api/pois/enrich?lat=X&lng=Y
- * Returns OpenAI-generated audio guide scripts for tourist landmarks.
- * 
- * Response format: { name: string, masterScript: string }
- */
 @Controller('pois')
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class PoisController {
   constructor(private readonly poisService: PoisService) {}
 
-  /**
-   * Enrich a POI by coordinates using AI-generated audio script
-   * 
-   * Process:
-   * 1. Reverse geocoding: Find nearest tourist landmark within 50-100m
-   * 2. If found, generate captivating audio guide script using OpenAI
-   * 3. Cache the script for 7 days
-   * 
-   * @param lat - Latitude (e.g., 31.7767)
-   * @param lng - Longitude (e.g., 35.2345)
-   * @returns 200 with { name, masterScript }, or 204 if no tourist landmark found
-   */
   @Get('enrich')
   async enrichPoiByCoordinates(
     @Query('lat') lat: string,
@@ -51,12 +31,45 @@ export class PoisController {
     const result = await this.poisService.enrichPoiByCoordinates(latitude, longitude, language);
     
     if (!result) {
-      // No tourist content found - return 204 No Content
       res.status(204).send();
       return;
     }
 
-    // Return 200 with the enriched POI data
     res.status(200).json(result);
+  }
+
+  /**
+   * Stream TTS audio for a given text and language
+   * Uses OpenAI TTS with Redis binary caching (7-day TTL)
+   *
+   * GET /api/pois/audio?text=...&lang=he
+   * Response: audio/mpeg stream (chunked transfer)
+   */
+  @Get('audio')
+  async getAudio(
+    @Query('text') text: string,
+    @Query('lang') lang: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    if (!text || !text.trim()) {
+      res.status(400).json({ message: 'text parameter is required' });
+      return;
+    }
+
+    const language = lang || 'en';
+    const audioBuffer = await this.poisService.getAudio(text.trim(), language);
+
+    if (!audioBuffer) {
+      res.status(500).json({ message: 'Failed to generate audio' });
+      return;
+    }
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': audioBuffer.length.toString(),
+      'Transfer-Encoding': 'chunked',
+      'Cache-Control': 'public, max-age=604800',
+    });
+    res.end(audioBuffer);
   }
 }

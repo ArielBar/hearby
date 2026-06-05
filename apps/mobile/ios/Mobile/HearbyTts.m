@@ -4,8 +4,10 @@
 
 @interface HearbyTts : RCTEventEmitter <RCTBridgeModule, AVSpeechSynthesizerDelegate>
 @property (nonatomic, strong) AVSpeechSynthesizer *synthesizer;
+@property (nonatomic, strong) AVPlayer *audioPlayer;
 @property (nonatomic, copy) NSString *defaultLanguage;
 @property (nonatomic, assign) BOOL hasListeners;
+@property (nonatomic, assign) BOOL isStreamingAudio;
 @end
 
 @implementation HearbyTts
@@ -119,9 +121,83 @@ RCT_EXPORT_METHOD(speak:(NSString *)text) {
     ?: [AVSpeechSynthesisVoice voiceWithLanguage:@"en-US"];
 }
 
+RCT_EXPORT_METHOD(playAudioFromURL:(NSString *)urlString) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    // Stop any existing playback
+    if (self.synthesizer.isSpeaking) {
+      [self.synthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
+    }
+    if (self.audioPlayer) {
+      [self.audioPlayer pause];
+      self.audioPlayer = nil;
+    }
+
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+      if (self.hasListeners) {
+        [self sendEventWithName:@"tts-error" body:@{@"message": @"Invalid audio URL"}];
+      }
+      return;
+    }
+
+    self.isStreamingAudio = YES;
+    AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+    self.audioPlayer = [AVPlayer playerWithPlayerItem:item];
+
+    // Observe when playback finishes
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(audioDidFinishPlaying:)
+                                                 name:AVPlayerItemDidPlayToEndTimeNotification
+                                               object:item];
+    // Observe playback failure
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(audioDidFailPlaying:)
+                                                 name:AVPlayerItemFailedToPlayToEndTimeNotification
+                                               object:item];
+
+    if (self.hasListeners) {
+      [self sendEventWithName:@"tts-start" body:@{@"mode": @"streaming"}];
+    }
+    [self.audioPlayer play];
+  });
+}
+
+- (void)audioDidFinishPlaying:(NSNotification *)notification {
+  [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                  name:AVPlayerItemDidPlayToEndTimeNotification
+                                                object:notification.object];
+  [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                  name:AVPlayerItemFailedToPlayToEndTimeNotification
+                                                object:notification.object];
+  self.isStreamingAudio = NO;
+  if (self.hasListeners) {
+    [self sendEventWithName:@"tts-finish" body:nil];
+  }
+}
+
+- (void)audioDidFailPlaying:(NSNotification *)notification {
+  [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                  name:AVPlayerItemDidPlayToEndTimeNotification
+                                                object:notification.object];
+  [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                  name:AVPlayerItemFailedToPlayToEndTimeNotification
+                                                object:notification.object];
+  self.isStreamingAudio = NO;
+  if (self.hasListeners) {
+    [self sendEventWithName:@"tts-error" body:@{@"message": @"Streaming playback failed"}];
+  }
+}
+
 RCT_EXPORT_METHOD(stop) {
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (self.synthesizer.isSpeaking) {
+    if (self.isStreamingAudio && self.audioPlayer) {
+      [self.audioPlayer pause];
+      self.audioPlayer = nil;
+      self.isStreamingAudio = NO;
+      if (self.hasListeners) {
+        [self sendEventWithName:@"tts-cancel" body:nil];
+      }
+    } else if (self.synthesizer.isSpeaking) {
       [self.synthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
     }
   });
@@ -129,7 +205,12 @@ RCT_EXPORT_METHOD(stop) {
 
 RCT_EXPORT_METHOD(pause) {
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (self.synthesizer.isSpeaking) {
+    if (self.isStreamingAudio && self.audioPlayer) {
+      [self.audioPlayer pause];
+      if (self.hasListeners) {
+        [self sendEventWithName:@"tts-pause" body:nil];
+      }
+    } else if (self.synthesizer.isSpeaking) {
       [self.synthesizer pauseSpeakingAtBoundary:AVSpeechBoundaryImmediate];
     }
   });
@@ -137,7 +218,12 @@ RCT_EXPORT_METHOD(pause) {
 
 RCT_EXPORT_METHOD(resume) {
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (self.synthesizer.isPaused) {
+    if (self.isStreamingAudio && self.audioPlayer) {
+      [self.audioPlayer play];
+      if (self.hasListeners) {
+        [self sendEventWithName:@"tts-resume" body:nil];
+      }
+    } else if (self.synthesizer.isPaused) {
       [self.synthesizer continueSpeaking];
     }
   });
