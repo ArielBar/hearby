@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { createClient, RedisClientType } from '@redis/client';
-import { WikipediaService } from '../wikipedia/wikipedia.service';
+import { SearchService } from '../search/search.service';
 import { OpenAIService } from '../openai/openai.service';
 
 /**
@@ -31,10 +31,10 @@ const SEARCH_RADIUS_M = 50; // Match within 50 meters
 @Injectable()
 export class PoisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PoisService.name);
-  private redis: RedisClientType;
+  private redis!: RedisClientType;
 
   constructor(
-    private readonly wikipediaService: WikipediaService,
+    private readonly searchService: SearchService,
     private readonly openaiService: OpenAIService,
   ) {}
 
@@ -161,7 +161,7 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
 
     try {
       // Step 3: Reverse geocode to get POI name (Nominatim)
-      const poi = await this.wikipediaService.reverseGeocode(lat, lng);
+      const poi = await this.searchService.reverseGeocode(lat, lng);
 
       if (!poi) {
         this.logger.debug(`No tourist POI found at [${lat}, ${lng}]`);

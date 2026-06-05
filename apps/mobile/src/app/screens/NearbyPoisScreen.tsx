@@ -39,11 +39,8 @@ const LANG_FLAGS: Record<string, string> = {
  */
 function getDevicePreferredLanguages(): { code: string; label: string }[] {
   try {
-    // Try RN Settings API (works with new architecture)
     const appleLanguages: string[] | undefined =
       Settings.get('AppleLanguages') as string[] | undefined;
-
-    console.log('[Lang] Settings.get AppleLanguages:', appleLanguages);
 
     if (appleLanguages && appleLanguages.length > 0) {
       const seen = new Set<string>();
@@ -59,8 +56,8 @@ function getDevicePreferredLanguages(): { code: string; label: string }[] {
           label: `${LANG_FLAGS[code] || '🌐'} ${code.toUpperCase()}`,
         }));
     }
-  } catch (e) {
-    console.log('[Lang] Error:', e);
+  } catch {
+    // Settings API not available
   }
   // Fallback
   return [
@@ -138,7 +135,7 @@ async function fetchAutocomplete(
     });
 
     const res = await fetch(
-      `${BASE_URL}/wikipedia/nominatim-search?${params}`
+      `${BASE_URL}/search/nominatim?${params}`
     );
 
     if (!res.ok) {
@@ -198,11 +195,6 @@ export function NearbyPoisScreen() {
   // TTS playback state
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-
-  // Log detected language on mount
-  useEffect(() => {
-    console.log('[NearbyPoisScreen] Device language for search:', deviceLanguage);
-  }, [deviceLanguage]);
 
   // Targeted fetch: only when coordinate is selected
   const { data: poiData, isLoading } = useQuery({
