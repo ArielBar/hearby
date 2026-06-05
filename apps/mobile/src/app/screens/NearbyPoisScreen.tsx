@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Dimensions,
   FlatList,
+  I18nManager,
   Keyboard,
   Modal,
   NativeEventEmitter,
@@ -27,6 +28,90 @@ const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
 
 // Backend API call
 const BASE_URL = 'http://localhost:3000/api';
+
+// Localized UI strings
+const UI_STRINGS: Record<string, Record<string, string>> = {
+  he: {
+    searchPlaceholder: 'חיפוש...',
+    recents: 'אחרונים',
+    nearbyExploration: 'חיפוש בסביבה',
+    landmarks: 'אתרים וציוני דרך',
+    noResults: 'לא נמצאו תוצאות',
+    guides: 'מדריכים',
+    loading: 'טוען מידע...',
+    searchingPoi: 'מחפש מקום מעניין...',
+    unknownPlace: 'מקום לא מוכר',
+    playAudio: 'הקש להשמעת תוכן',
+    nowPlaying: 'מושמע כעת...',
+    noAudio: 'אין תוכן שמע זמין למקום זה',
+  },
+  en: {
+    searchPlaceholder: 'Search...',
+    recents: 'Recents',
+    nearbyExploration: 'Explore Nearby',
+    landmarks: 'Landmarks & Attractions',
+    noResults: 'No results found',
+    guides: 'Guides',
+    loading: 'Loading...',
+    searchingPoi: 'Looking for a place...',
+    unknownPlace: 'Unknown place',
+    playAudio: 'Tap to play audio',
+    nowPlaying: 'Now playing...',
+    noAudio: 'No audio content available',
+  },
+  es: {
+    searchPlaceholder: 'Buscar...',
+    recents: 'Recientes',
+    nearbyExploration: 'Explorar Cerca',
+    landmarks: 'Monumentos y Atracciones',
+    noResults: 'Sin resultados',
+    guides: 'Guías',
+    loading: 'Cargando...',
+    searchingPoi: 'Buscando un lugar...',
+    unknownPlace: 'Lugar desconocido',
+    playAudio: 'Toca para reproducir',
+    nowPlaying: 'Reproduciendo...',
+    noAudio: 'No hay audio disponible',
+  },
+  it: {
+    searchPlaceholder: 'Cerca...',
+    recents: 'Recenti',
+    nearbyExploration: 'Esplora Dintorni',
+    landmarks: 'Monumenti e Attrazioni',
+    noResults: 'Nessun risultato',
+    guides: 'Guide',
+    loading: 'Caricamento...',
+    searchingPoi: 'Cercando un luogo...',
+    unknownPlace: 'Luogo sconosciuto',
+    playAudio: 'Tocca per ascoltare',
+    nowPlaying: 'In riproduzione...',
+    noAudio: 'Nessun audio disponibile',
+  },
+  fr: {
+    searchPlaceholder: 'Rechercher...',
+    recents: 'Récents',
+    nearbyExploration: 'Explorer les Environs',
+    landmarks: 'Sites et Monuments',
+    noResults: 'Aucun résultat',
+    guides: 'Guides',
+    loading: 'Chargement...',
+    searchingPoi: 'Recherche en cours...',
+    unknownPlace: 'Lieu inconnu',
+    playAudio: 'Appuyez pour écouter',
+    nowPlaying: 'Lecture en cours...',
+    noAudio: 'Aucun audio disponible',
+  },
+};
+
+function t(lang: string, key: string): string {
+  return UI_STRINGS[lang]?.[key] || UI_STRINGS['en'][key] || key;
+}
+
+const RTL_LANGUAGES = new Set(['he', 'ar', 'fa', 'ur']);
+
+function isRTL(lang: string): boolean {
+  return RTL_LANGUAGES.has(lang);
+}
 
 const LANG_FLAGS: Record<string, string> = {
   en: '🇬🇧', he: '🇮🇱', es: '🇪🇸', fr: '🇫🇷', de: '🇩🇪',
@@ -224,6 +309,14 @@ export function NearbyPoisScreen() {
     setUsePremiumVoice(enabled);
     AsyncStorage.setItem('hearby_premium_voice', enabled ? 'true' : 'false');
   }, []);
+
+  // Direction-aware layout based on selected language
+  const rtl = useMemo(() => isRTL(deviceLanguage), [deviceLanguage]);
+  const dirStyles = useMemo(() => ({
+    row: { flexDirection: rtl ? 'row' : 'row-reverse' } as const,
+    textAlign: { textAlign: rtl ? 'right' : 'left' } as const,
+    writingDirection: { writingDirection: rtl ? 'rtl' : 'ltr' } as const,
+  }), [rtl]);
 
   // Targeted fetch: only when coordinate is selected
   const { data: poiData, isLoading } = useQuery({
@@ -456,7 +549,7 @@ export function NearbyPoisScreen() {
         </View>
 
         {/* Header Row: Close + Search Input */}
-        <View style={styles.searchHeader}>
+        <View style={[styles.searchHeader, dirStyles.row]}>
           <TouchableOpacity
             style={styles.closeSearchBtn}
             onPress={handleCancelSearch}
@@ -467,8 +560,8 @@ export function NearbyPoisScreen() {
 
           <View style={styles.searchInputWrapper}>
             <TextInput
-              style={styles.searchInput}
-              placeholder="חיפוש..."
+              style={[styles.searchInput, dirStyles.textAlign, dirStyles.writingDirection]}
+              placeholder={t(deviceLanguage, 'searchPlaceholder')}
               placeholderTextColor="#8e8e93"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -499,32 +592,32 @@ export function NearbyPoisScreen() {
             {/* Recent Searches */}
             {recentSearches.length > 0 && (
               <>
-                <Text style={styles.sectionTitle}>אחרונים</Text>
+                <Text style={[styles.sectionTitle, dirStyles.textAlign]}>{t(deviceLanguage, 'recents')}</Text>
                 {recentSearches.map((item, idx) => (
                   <TouchableOpacity
                     key={`recent-${idx}`}
-                    style={styles.recentRow}
+                    style={[styles.recentRow, dirStyles.row]}
                     activeOpacity={0.6}
                     onPress={() => handleSearchResultSelect(item)}
                   >
                     <View style={styles.recentIcon}>
                       <Text style={styles.recentIconText}>🕐</Text>
                     </View>
-                    <Text style={styles.recentLabel} numberOfLines={1}>
+                    <Text style={[styles.recentLabel, dirStyles.textAlign]} numberOfLines={1}>
                       {item.title}
                     </Text>
-                    <Text style={styles.categoryChevron}>‹</Text>
+                    <Text style={styles.categoryChevron}>{rtl ? '‹' : '›'}</Text>
                   </TouchableOpacity>
                 ))}
               </>
             )}
 
             {/* Nearby Exploration Section */}
-            <Text style={[styles.sectionTitle, recentSearches.length > 0 && { marginTop: 20 }]}>
-              חיפוש בסביבה
+            <Text style={[styles.sectionTitle, dirStyles.textAlign, recentSearches.length > 0 && { marginTop: 20 }]}>
+              {t(deviceLanguage, 'nearbyExploration')}
             </Text>
             <TouchableOpacity
-              style={styles.categoryRow}
+              style={[styles.categoryRow, dirStyles.row]}
               activeOpacity={0.6}
               onPress={() => {
                 // Trigger POI discovery from current map center
@@ -538,8 +631,8 @@ export function NearbyPoisScreen() {
               <View style={styles.categoryIcon}>
                 <Text style={styles.categoryIconText}>⭐</Text>
               </View>
-              <Text style={styles.categoryLabel}>אתרים וציוני דרך</Text>
-              <Text style={styles.categoryChevron}>‹</Text>
+              <Text style={[styles.categoryLabel, dirStyles.textAlign]}>{t(deviceLanguage, 'landmarks')}</Text>
+              <Text style={styles.categoryChevron}>{rtl ? '‹' : '›'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -568,7 +661,7 @@ export function NearbyPoisScreen() {
                       onPress={() => handleSearchResultSelect(item)}
                       activeOpacity={0.6}
                     >
-                      <View style={styles.resultRow}>
+                      <View style={[styles.resultRow, dirStyles.row]}>
                         <View style={[
                           styles.resultIconCircle,
                           isTopMatch ? styles.resultIconGlobe : styles.resultIconStar,
@@ -578,11 +671,11 @@ export function NearbyPoisScreen() {
                           </Text>
                         </View>
                         <View style={styles.resultTextBlock}>
-                          <Text style={styles.resultTitle} numberOfLines={1}>
+                          <Text style={[styles.resultTitle, dirStyles.textAlign]} numberOfLines={1}>
                             {item.title}
                           </Text>
                           {item.description ? (
-                            <Text style={styles.resultSubtitle} numberOfLines={1}>
+                            <Text style={[styles.resultSubtitle, dirStyles.textAlign]} numberOfLines={1}>
                               {item.description}
                             </Text>
                           ) : null}
@@ -590,7 +683,7 @@ export function NearbyPoisScreen() {
                       </View>
                       {isTopMatch && (
                         <View style={styles.guidesBtn}>
-                          <Text style={styles.guidesBtnText}>מדריכים</Text>
+                          <Text style={styles.guidesBtnText}>{t(deviceLanguage, 'guides')}</Text>
                         </View>
                       )}
                     </TouchableOpacity>
@@ -600,7 +693,7 @@ export function NearbyPoisScreen() {
               />
             ) : (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>לא נמצאו תוצאות</Text>
+                <Text style={styles.emptyText}>{t(deviceLanguage, 'noResults')}</Text>
               </View>
             )}
           </View>
@@ -622,23 +715,23 @@ export function NearbyPoisScreen() {
           </TouchableOpacity>
 
           {/* POI Title */}
-          <Text style={styles.title} numberOfLines={2}>
+          <Text style={[styles.title, dirStyles.textAlign]} numberOfLines={2}>
             {isLoading
-              ? 'מחפש מקום מעניין...'
-              : poiData?.name || 'מקום לא מוכר'}
+              ? t(deviceLanguage, 'searchingPoi')
+              : poiData?.name || t(deviceLanguage, 'unknownPlace')}
           </Text>
 
           {/* Loading State - Wikipedia fetch */}
           {isLoading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color="#6366f1" />
-              <Text style={styles.loadingText}>טוען מידע...</Text>
+              <Text style={styles.loadingText}>{t(deviceLanguage, 'loading')}</Text>
             </View>
           )}
 
           {/* Condition A: Audio content available */}
           {!isLoading && poiData?.masterScript && (
-            <View style={styles.audioContainer}>
+            <View style={[styles.audioContainer, dirStyles.row]}>
               <TouchableOpacity
                 style={[
                   styles.playBtn,
@@ -651,8 +744,8 @@ export function NearbyPoisScreen() {
                   {isPlaying && !isPaused ? '⏸️' : '▶️'}
                 </Text>
               </TouchableOpacity>
-              <Text style={styles.audioLabel}>
-                {isPlaying && !isPaused ? 'מושמע כעת...' : 'הקש להשמעת תוכן'}
+              <Text style={[styles.audioLabel, dirStyles.textAlign]}>
+                {isPlaying && !isPaused ? t(deviceLanguage, 'nowPlaying') : t(deviceLanguage, 'playAudio')}
               </Text>
             </View>
           )}
@@ -661,7 +754,7 @@ export function NearbyPoisScreen() {
           {!isLoading && !poiData?.masterScript && (
             <View style={styles.noAudioContainer}>
               <Text style={styles.mutedIcon}>🔇</Text>
-              <Text style={styles.noAudioText}>אין תוכן שמע זמין למקום זה</Text>
+              <Text style={styles.noAudioText}>{t(deviceLanguage, 'noAudio')}</Text>
             </View>
           )}
         </View>
@@ -798,7 +891,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     color: '#000',
-    textAlign: 'right',
     paddingVertical: 0,
   },
   searchInputIcon: {
@@ -828,7 +920,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000',
-    textAlign: 'right',
     marginBottom: 14,
   },
   recentRow: {
@@ -853,7 +944,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#000',
-    textAlign: 'right',
   },
   categoryRow: {
     flexDirection: 'row',
@@ -952,13 +1042,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#000',
-    textAlign: 'right',
   },
   resultSubtitle: {
     fontSize: 14,
     color: '#8E8E93',
     marginTop: 2,
-    textAlign: 'right',
   },
   guidesBtn: {
     marginTop: 12,
@@ -1016,7 +1104,6 @@ const styles = StyleSheet.create({
     color: '#1e293b',
     marginBottom: 16,
     paddingRight: 40,
-    textAlign: 'right',
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -1059,7 +1146,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#475569',
-    textAlign: 'right',
   },
   noAudioContainer: {
     flexDirection: 'row',
