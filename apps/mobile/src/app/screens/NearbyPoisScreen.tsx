@@ -642,7 +642,7 @@ export function NearbyPoisScreen() {
           <View style={styles.resultsContent}>
             {isSearching ? (
               <View style={styles.loadingState}>
-                <ActivityIndicator size="small" color="#007aff" />
+                <ActivityIndicator size="small" color="#40C4C1" />
               </View>
             ) : searchResults.length > 0 ? (
               <FlatList
@@ -724,7 +724,7 @@ export function NearbyPoisScreen() {
           {/* Loading State - Wikipedia fetch */}
           {isLoading && (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#6366f1" />
+              <ActivityIndicator size="small" color="#5E2B96" />
               <Text style={styles.loadingText}>{t(deviceLanguage, 'loading')}</Text>
             </View>
           )}
@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#007AFF',
+    backgroundColor: '#40C4C1',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
@@ -1029,7 +1029,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#34C759',
   },
   resultIconStar: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#40C4C1',
   },
   resultIconText: {
     fontSize: 18,
@@ -1050,7 +1050,7 @@ const styles = StyleSheet.create({
   },
   guidesBtn: {
     marginTop: 12,
-    backgroundColor: '#E8F0FE',
+    backgroundColor: '#E6F9F9',
     borderRadius: 20,
     paddingVertical: 10,
     alignItems: 'center',
@@ -1058,7 +1058,7 @@ const styles = StyleSheet.create({
   guidesBtnText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#007AFF',
+    color: '#40C4C1',
   },
   resultDivider: {
     height: 0,
@@ -1126,17 +1126,17 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#5E2B96',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#6366f1',
+    shadowColor: '#5E2B96',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
   },
   playBtnActive: {
-    backgroundColor: '#4338ca',
+    backgroundColor: '#4A2278',
   },
   playBtnIcon: {
     fontSize: 24,
@@ -1197,14 +1197,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   langOptionSelected: {
-    backgroundColor: '#007AFF15',
+    backgroundColor: '#40C4C115',
   },
   langOptionText: {
     fontSize: 16,
     color: '#333',
   },
   langOptionTextSelected: {
-    color: '#007AFF',
+    color: '#40C4C1',
     fontWeight: '600',
   },
   premiumVoiceDivider: {
@@ -1232,7 +1232,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   premiumVoiceToggleOn: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#40C4C1',
   },
   premiumVoiceThumb: {
     width: 20,
