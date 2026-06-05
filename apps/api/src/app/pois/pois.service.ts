@@ -142,15 +142,15 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
       const englishCached = await this.findNearbyPoi(lat, lng, DEFAULT_LANG);
       if (englishCached) {
         this.logger.log(`Translating "${englishCached.name}" from en → ${lang}`);
-        const translated = await this.openaiService.translateScript(
+        const translation = await this.openaiService.translateScript(
           englishCached.masterScript,
           englishCached.name,
           lang,
         );
-        if (translated) {
+        if (translation) {
           const result: EnrichResult = {
-            name: englishCached.name,
-            masterScript: translated,
+            name: translation.translatedName,
+            masterScript: translation.translatedScript,
           };
           await this.storePoi(lat, lng, result, lang);
           return result;
@@ -192,15 +192,15 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
 
       // Step 5: If non-English requested, translate
       if (lang !== DEFAULT_LANG) {
-        const translated = await this.openaiService.translateScript(
+        const translation = await this.openaiService.translateScript(
           audioScript.masterScript,
           audioScript.name,
           lang,
         );
-        if (translated) {
+        if (translation) {
           const translatedResult: EnrichResult = {
-            name: audioScript.name,
-            masterScript: translated,
+            name: translation.translatedName,
+            masterScript: translation.translatedScript,
           };
           await this.storePoi(lat, lng, translatedResult, lang);
           this.logger.log(`✓ Enriched and cached POI "${audioScript.name}:${lang}" at [${lat}, ${lng}]`);

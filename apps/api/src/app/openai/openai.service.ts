@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 
+export interface TranslationResult {
+  translatedName: string;
+  translatedScript: string;
+}
+
 export interface AudioScript {
   name: string;
   masterScript: string;
@@ -141,7 +146,7 @@ export class OpenAIService {
     englishScript: string,
     poiName: string,
     targetLang: string,
-  ): Promise<string | null> {
+  ): Promise<TranslationResult | null> {
     try {
       const langName = this.getLanguageName(targetLang);
       this.logger.log(`Translating script for "${poiName}" to ${langName}`);
@@ -151,34 +156,46 @@ export class OpenAIService {
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator for premium audio guides. Translate the following script to ${langName}.
+            content: `You are a professional translator for premium audio guides. Translate the POI name and script to ${langName}.
 
 RULES:
 - Address the audience in PLURAL form always (Hebrew: "אתם מטיילים" not "אתה מטייל", Spanish: "ustedes" not "tú", French: "vous" plural).
-- Produce ONLY raw continuous text. No markdown, no headers, no bullet points, no asterisks, no special formatting.
+- Produce ONLY raw continuous text for the script. No markdown, no headers, no bullet points, no asterisks, no special formatting.
 - Preserve the warm storytelling tone, sensory details, and paragraph structure.
 - Keep proper nouns in their commonly known form in ${langName}.
 - The output goes directly into a text-to-speech engine — any formatting will corrupt the audio.
-- Sound natural and conversational when read aloud, as if a local guide is speaking.`,
+- Sound natural and conversational when read aloud, as if a local guide is speaking.
+
+OUTPUT FORMAT (strict):
+NAME: <translated landmark name in ${langName}>
+SCRIPT:
+<translated script>`,
           },
           {
             role: 'user',
-            content: englishScript,
+            content: `POI Name: ${poiName}\n\nScript:\n${englishScript}`,
           },
         ],
-        temperature: 0.3, // Low temperature for accurate translation
+        temperature: 0.3,
         max_tokens: 800,
       });
 
-      const translated = completion.choices[0]?.message?.content?.trim();
+      const raw = completion.choices[0]?.message?.content?.trim();
 
-      if (!translated) {
+      if (!raw) {
         this.logger.warn(`Empty translation response for "${poiName}" → ${langName}`);
         return null;
       }
 
-      this.logger.log(`✓ Translated "${poiName}" to ${langName}`);
-      return translated;
+      // Parse NAME and SCRIPT from response
+      const nameMatch = raw.match(/^NAME:\s*(.+)/m);
+      const scriptMatch = raw.match(/SCRIPT:\s*([\s\S]+)/);
+
+      const translatedName = nameMatch?.[1]?.trim() || poiName;
+      const translatedScript = scriptMatch?.[1]?.trim() || raw;
+
+      this.logger.log(`✓ Translated "${poiName}" → "${translatedName}" (${langName})`);
+      return { translatedName, translatedScript };
     } catch (error) {
       this.logger.error(
         `Translation failed for "${poiName}" → ${targetLang}`,

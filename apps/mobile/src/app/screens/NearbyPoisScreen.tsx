@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
   FlatList,
   Keyboard,
   Modal,
@@ -20,6 +22,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
 
 // Backend API call
 const BASE_URL = 'http://localhost:3000/api';
@@ -422,53 +426,85 @@ export function NearbyPoisScreen() {
         )}
       </MapView>
 
-      {/* Apple Maps-Style Global Search */}
-      <View
+      {/* Apple Maps-Style Search Panel */}
+      <Animated.View
         style={[
-          styles.searchOverlay,
-          isSearchFocused && styles.searchOverlayFocused,
-          { paddingTop: insets.top + 8 },
+          styles.searchPanel,
+          { maxHeight: PANEL_MAX_HEIGHT },
         ]}
       >
-        <View style={styles.searchBar}>
+        {/* Drag Handle */}
+        <View style={styles.dragHandle}>
+          <View style={styles.dragHandleBar} />
+        </View>
+
+        {/* Header Row: Close + Search Input */}
+        <View style={styles.searchHeader}>
           <TouchableOpacity
-            style={styles.langSelector}
+            style={styles.closeSearchBtn}
+            onPress={handleCancelSearch}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.closeSearchBtnText}>✕</Text>
+          </TouchableOpacity>
+
+          <View style={styles.searchInputWrapper}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="חיפוש..."
+              placeholderTextColor="#8e8e93"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.searchInputIcon}>
+              <Text style={styles.searchInputIconText}>🔍</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.langBadge}
             onPress={() => setShowLangPicker(true)}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           >
-            <Text style={styles.langSelectorText}>
-              {preferredLanguages.find(l => l.code === deviceLanguage)?.label || `🌐 ${deviceLanguage.toUpperCase()}`}
+            <Text style={styles.langBadgeText}>
+              {LANG_FLAGS[deviceLanguage] || '🌐'} {deviceLanguage.toUpperCase()}
             </Text>
-            <Text style={styles.langSelectorArrow}>▼</Text>
           </TouchableOpacity>
-          <View style={styles.searchIconContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
-          </View>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="חפש או חקור מקומות"
-            placeholderTextColor="#8e8e93"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onFocus={() => setIsSearchFocused(true)}
-            returnKeyType="search"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {isSearchFocused && (
-            <TouchableOpacity
-              onPress={handleCancelSearch}
-              style={styles.cancelButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Text style={styles.cancelText}>ביטול</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
-        {/* Apple Maps-Style Results */}
-        {isSearchFocused && searchQuery.trim().length >= 2 && (
-          <View style={styles.resultsContainer}>
+        {/* State A: Default View (empty query) */}
+        {!searchQuery.trim() && (
+          <View style={styles.defaultContent}>
+            {/* Nearby Exploration Section */}
+            <Text style={styles.sectionTitle}>חיפוש בסביבה</Text>
+            <TouchableOpacity
+              style={styles.categoryRow}
+              activeOpacity={0.6}
+              onPress={() => {
+                // Trigger POI discovery from current map center
+                mapRef.current?.getCamera().then(camera => {
+                  if (camera?.center) {
+                    handleMapPress(camera.center);
+                  }
+                });
+              }}
+            >
+              <View style={styles.categoryIcon}>
+                <Text style={styles.categoryIconText}>⭐</Text>
+              </View>
+              <Text style={styles.categoryLabel}>אתרים וציוני דרך</Text>
+              <Text style={styles.categoryChevron}>‹</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* State B: Results View (typing/results exist) */}
+        {searchQuery.trim().length >= 2 && (
+          <View style={styles.resultsContent}>
             {isSearching ? (
               <View style={styles.loadingState}>
                 <ActivityIndicator size="small" color="#007aff" />
@@ -479,40 +515,45 @@ export function NearbyPoisScreen() {
                 keyExtractor={(item, index) => `${item.title}-${index}`}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.resultRow}
-                    onPress={() => handleSearchResultSelect(item)}
-                    activeOpacity={0.6}
-                  >
-                    {/* Icon based on type */}
-                    <View style={styles.resultIconContainer}>
-                      <Text style={styles.resultIcon}>
-                        {item.type === 'city' ? '🌐' : '📍'}
-                      </Text>
-                    </View>
-
-                    {/* Text Content */}
-                    <View style={styles.resultTextContainer}>
-                      <Text style={styles.resultTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      {item.description && (
-                        <Text style={styles.resultSubtitle} numberOfLines={2}>
-                          {item.description}
-                        </Text>
+                renderItem={({ item, index }) => {
+                  const isTopMatch = index === 0 && item.type === 'city';
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.resultCard,
+                        isTopMatch && styles.resultCardTop,
+                      ]}
+                      onPress={() => handleSearchResultSelect(item)}
+                      activeOpacity={0.6}
+                    >
+                      <View style={styles.resultRow}>
+                        <View style={[
+                          styles.resultIconCircle,
+                          isTopMatch ? styles.resultIconGlobe : styles.resultIconStar,
+                        ]}>
+                          <Text style={styles.resultIconText}>
+                            {item.type === 'city' ? '🌍' : '⭐'}
+                          </Text>
+                        </View>
+                        <View style={styles.resultTextBlock}>
+                          <Text style={styles.resultTitle} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          {item.description ? (
+                            <Text style={styles.resultSubtitle} numberOfLines={1}>
+                              {item.description}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                      {isTopMatch && (
+                        <View style={styles.guidesBtn}>
+                          <Text style={styles.guidesBtnText}>מדריכים</Text>
+                        </View>
                       )}
-                      {(!item.lat || !item.lng) && (
-                        <Text style={styles.noLocationLabel}>אין מיקום זמין</Text>
-                      )}
-                    </View>
-
-                    {/* Chevron Arrow */}
-                    <View style={styles.resultChevron}>
-                      <Text style={styles.chevronIcon}>›</Text>
-                    </View>
-                  </TouchableOpacity>
-                )}
+                    </TouchableOpacity>
+                  );
+                }}
                 ItemSeparatorComponent={() => <View style={styles.resultDivider} />}
               />
             ) : (
@@ -522,7 +563,7 @@ export function NearbyPoisScreen() {
             )}
           </View>
         )}
-      </View>
+      </Animated.View>
 
       {/* Conditional Bottom Sheet */}
       {selectedCoordinate && (
@@ -652,92 +693,142 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  
-  // Apple Maps-Style Search Overlay
-  searchOverlay: {
+
+  // Apple Maps Search Panel (Bottom Card)
+  searchPanel: {
     position: 'absolute',
-    top: 0,
+    bottom: 0,
     left: 0,
     right: 0,
-    zIndex: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     paddingHorizontal: 16,
+    paddingBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 24,
   },
-  searchOverlayFocused: {
-    backgroundColor: '#f2f2f7',
-    height: '100%',
-    zIndex: 999,
+  dragHandle: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 14,
   },
-  searchBar: {
+  dragHandleBar: {
+    width: 40,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D1D1D6',
+  },
+
+  // Header Row
+  searchHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
+    marginBottom: 16,
   },
-  langSelector: {
-    position: 'absolute',
-    left: 8,
-    zIndex: 2,
-    flexDirection: 'row',
+  closeSearchBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E5E5EA',
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f0f0f5',
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
   },
-  langSelectorText: {
-    fontSize: 12,
+  closeSearchBtnText: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#3C3C43',
   },
-  langSelectorArrow: {
-    fontSize: 8,
-    color: '#666',
-    marginLeft: 2,
-  },
-  searchIconContainer: {
-    position: 'absolute',
-    left: 44,
-    zIndex: 1,
-  },
-  searchIcon: {
-    fontSize: 18,
-    opacity: 0.5,
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    backgroundColor: '#E5E5EA',
+    borderRadius: 22,
+    paddingHorizontal: 16,
   },
   searchInput: {
     flex: 1,
-    height: 44,
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
-    paddingHorizontal: 68,
     fontSize: 17,
-    color: '#000000',
+    color: '#000',
     textAlign: 'right',
+    paddingVertical: 0,
+  },
+  searchInputIcon: {
+    marginLeft: 8,
+  },
+  searchInputIconText: {
+    fontSize: 16,
+    opacity: 0.5,
+  },
+  langBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#E5E5EA',
+    borderRadius: 16,
+  },
+  langBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#3C3C43',
+  },
+
+  // State A: Default Content
+  defaultContent: {
+    paddingTop: 4,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    textAlign: 'right',
+    marginBottom: 14,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
   },
-  cancelButton: {
-    paddingVertical: 8,
+  categoryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
   },
-  cancelText: {
+  categoryIconText: {
+    fontSize: 18,
+  },
+  categoryLabel: {
+    flex: 1,
     fontSize: 17,
-    color: '#007aff',
-    fontWeight: '400',
+    fontWeight: '600',
+    color: '#000',
+    textAlign: 'right',
+  },
+  categoryChevron: {
+    fontSize: 22,
+    color: '#C7C7CC',
+    fontWeight: '300',
   },
 
-  // Results Container
-  resultsContainer: {
-    marginTop: 12,
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    maxHeight: '80%',
+  // State B: Results Content
+  resultsContent: {
+    flex: 1,
   },
   loadingState: {
     paddingVertical: 40,
@@ -751,65 +842,75 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#8e8e93',
   },
-
-  // Result Row (Apple Maps Style)
+  resultCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginHorizontal: 0,
+    padding: 14,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  resultCardTop: {
+    marginBottom: 12,
+  },
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#ffffff',
   },
-  resultIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#f2f2f7',
+  resultIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginLeft: 12,
   },
-  resultIcon: {
-    fontSize: 20,
+  resultIconGlobe: {
+    backgroundColor: '#34C759',
   },
-  resultTextContainer: {
+  resultIconStar: {
+    backgroundColor: '#007AFF',
+  },
+  resultIconText: {
+    fontSize: 18,
+  },
+  resultTextBlock: {
     flex: 1,
-    marginRight: 8,
+    alignItems: 'flex-end',
   },
   resultTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#000000',
-    marginBottom: 2,
+    color: '#000',
     textAlign: 'right',
   },
   resultSubtitle: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginTop: 2,
+    textAlign: 'right',
+  },
+  guidesBtn: {
+    marginTop: 12,
+    backgroundColor: '#E8F0FE',
+    borderRadius: 20,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  guidesBtnText: {
     fontSize: 15,
-    color: '#8e8e93',
-    lineHeight: 20,
-    textAlign: 'right',
-  },
-  noLocationLabel: {
-    fontSize: 13,
-    color: '#ff3b30',
-    marginTop: 4,
-    textAlign: 'right',
-  },
-  resultChevron: {
-    marginLeft: 8,
-  },
-  chevronIcon: {
-    fontSize: 24,
-    color: '#c7c7cc',
-    fontWeight: '300',
+    fontWeight: '600',
+    color: '#007AFF',
   },
   resultDivider: {
-    height: 0.5,
-    backgroundColor: '#c6c6c8',
-    marginLeft: 64, // Align with text, not icon
+    height: 0,
   },
 
-  // Bottom Sheet Styles (existing)
+  // Bottom Sheet Styles (POI Audio Player)
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
@@ -848,7 +949,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1e293b',
     marginBottom: 16,
-    paddingRight: 40, // Space for close button
+    paddingRight: 40,
     textAlign: 'right',
   },
   loadingContainer: {
@@ -911,6 +1012,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#64748b',
   },
+
+  // Language Picker Modal
   langModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
