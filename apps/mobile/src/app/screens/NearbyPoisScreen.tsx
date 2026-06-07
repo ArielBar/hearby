@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   I18nManager,
+  Image,
   Keyboard,
   Modal,
   NativeEventEmitter,
@@ -25,6 +26,21 @@ const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
+
+// Brand icons
+const ICONS = {
+  search: require('../../../assets/icons/search.png'),
+  close: require('../../../assets/icons/close.png'),
+  recent: require('../../../assets/icons/recent.png'),
+  landmark: require('../../../assets/icons/landmark.png'),
+  globe: require('../../../assets/icons/globe.png'),
+  chevronLeft: require('../../../assets/icons/chevron-left.png'),
+  chevronRight: require('../../../assets/icons/chevron-right.png'),
+  play: require('../../../assets/icons/play.png'),
+  pause: require('../../../assets/icons/pause.png'),
+  muted: require('../../../assets/icons/muted.png'),
+  mic: require('../../../assets/icons/mic.png'),
+};
 
 // Backend API call
 const BASE_URL = 'http://localhost:3000/api';
@@ -555,14 +571,14 @@ export function NearbyPoisScreen() {
             onPress={handleCancelSearch}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.closeSearchBtnText}>✕</Text>
+            <Image source={ICONS.close} style={styles.iconSmall} />
           </TouchableOpacity>
 
           <View style={styles.searchInputWrapper}>
             <TextInput
               style={[styles.searchInput, dirStyles.textAlign, dirStyles.writingDirection]}
               placeholder={t(deviceLanguage, 'searchPlaceholder')}
-              placeholderTextColor="#8e8e93"
+              placeholderTextColor="rgba(255,255,255,0.4)"
               value={searchQuery}
               onChangeText={setSearchQuery}
               onFocus={() => setIsSearchFocused(true)}
@@ -571,7 +587,7 @@ export function NearbyPoisScreen() {
               autoCorrect={false}
             />
             <View style={styles.searchInputIcon}>
-              <Text style={styles.searchInputIconText}>🔍</Text>
+              <Image source={ICONS.search} style={styles.iconSmall} />
             </View>
           </View>
 
@@ -601,12 +617,12 @@ export function NearbyPoisScreen() {
                     onPress={() => handleSearchResultSelect(item)}
                   >
                     <View style={styles.recentIcon}>
-                      <Text style={styles.recentIconText}>🕐</Text>
+                      <Image source={ICONS.recent} style={styles.iconTiny} />
                     </View>
                     <Text style={[styles.recentLabel, dirStyles.textAlign]} numberOfLines={1}>
                       {item.title}
                     </Text>
-                    <Text style={styles.categoryChevron}>{rtl ? '‹' : '›'}</Text>
+                    <Image source={rtl ? ICONS.chevronLeft : ICONS.chevronRight} style={styles.iconChevron} />
                   </TouchableOpacity>
                 ))}
               </>
@@ -629,10 +645,10 @@ export function NearbyPoisScreen() {
               }}
             >
               <View style={styles.categoryIcon}>
-                <Text style={styles.categoryIconText}>⭐</Text>
+                <Image source={ICONS.landmark} style={styles.iconMedium} />
               </View>
               <Text style={[styles.categoryLabel, dirStyles.textAlign]}>{t(deviceLanguage, 'landmarks')}</Text>
-              <Text style={styles.categoryChevron}>{rtl ? '‹' : '›'}</Text>
+              <Image source={rtl ? ICONS.chevronLeft : ICONS.chevronRight} style={styles.iconChevron} />
             </TouchableOpacity>
           </View>
         )}
@@ -666,9 +682,7 @@ export function NearbyPoisScreen() {
                           styles.resultIconCircle,
                           isTopMatch ? styles.resultIconGlobe : styles.resultIconStar,
                         ]}>
-                          <Text style={styles.resultIconText}>
-                            {item.type === 'city' ? '🌍' : '⭐'}
-                          </Text>
+                          <Image source={item.type === 'city' ? ICONS.globe : ICONS.landmark} style={styles.iconMedium} />
                         </View>
                         <View style={styles.resultTextBlock}>
                           <Text style={[styles.resultTitle, dirStyles.textAlign]} numberOfLines={1}>
@@ -711,7 +725,7 @@ export function NearbyPoisScreen() {
             onPress={handleClose}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.closeBtnText}>✕</Text>
+            <Image source={ICONS.close} style={styles.iconSmall} />
           </TouchableOpacity>
 
           {/* POI Title */}
@@ -730,7 +744,7 @@ export function NearbyPoisScreen() {
           )}
 
           {/* Condition A: Audio content available */}
-          {!isLoading && poiData?.masterScript && (
+          {!isLoading && !!poiData?.masterScript && (
             <View style={[styles.audioContainer, dirStyles.row]}>
               <TouchableOpacity
                 style={[
@@ -740,9 +754,7 @@ export function NearbyPoisScreen() {
                 onPress={handlePlayPause}
                 activeOpacity={0.8}
               >
-                <Text style={styles.playBtnIcon}>
-                  {isPlaying && !isPaused ? '⏸️' : '▶️'}
-                </Text>
+                <Image source={isPlaying && !isPaused ? ICONS.pause : ICONS.play} style={styles.iconPlay} />
               </TouchableOpacity>
               <Text style={[styles.audioLabel, dirStyles.textAlign]}>
                 {isPlaying && !isPaused ? t(deviceLanguage, 'nowPlaying') : t(deviceLanguage, 'playAudio')}
@@ -753,7 +765,7 @@ export function NearbyPoisScreen() {
           {/* Condition B: No audio content */}
           {!isLoading && !poiData?.masterScript && (
             <View style={styles.noAudioContainer}>
-              <Text style={styles.mutedIcon}>🔇</Text>
+              <Image source={ICONS.muted} style={styles.iconLarge} />
               <Text style={styles.noAudioText}>{t(deviceLanguage, 'noAudio')}</Text>
             </View>
           )}
@@ -797,9 +809,10 @@ export function NearbyPoisScreen() {
               style={styles.premiumVoiceRow}
               onPress={() => handleTogglePremiumVoice(!usePremiumVoice)}
             >
-              <Text style={styles.premiumVoiceLabel}>
-                🎙️ Premium AI Voice
-              </Text>
+              <View style={styles.premiumVoiceLabelRow}>
+                <Image source={ICONS.mic} style={styles.iconTiny} />
+                <Text style={styles.premiumVoiceLabel}>Premium AI Voice</Text>
+              </View>
               <View style={[
                 styles.premiumVoiceToggle,
                 usePremiumVoice && styles.premiumVoiceToggleOn,
@@ -835,16 +848,48 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    backgroundColor: 'rgba(26, 29, 32, 0.95)',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 16,
     paddingBottom: 24,
-    shadowColor: '#000',
+    shadowColor: '#5E2B96',
     shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.2,
     shadowRadius: 20,
     elevation: 24,
+  },
+
+  // Brand icon sizes
+  iconTiny: {
+    width: 18,
+    height: 18,
+    resizeMode: 'contain',
+  },
+  iconSmall: {
+    width: 22,
+    height: 22,
+    resizeMode: 'contain',
+  },
+  iconMedium: {
+    width: 26,
+    height: 26,
+    resizeMode: 'contain',
+  },
+  iconChevron: {
+    width: 18,
+    height: 18,
+    resizeMode: 'contain',
+  },
+  iconPlay: {
+    width: 26,
+    height: 26,
+    resizeMode: 'contain',
+  },
+  iconLarge: {
+    width: 32,
+    height: 32,
+    resizeMode: 'contain',
   },
   dragHandle: {
     alignItems: 'center',
@@ -855,7 +900,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: '#D1D1D6',
+    backgroundColor: '#40C4C1',
   },
 
   // Header Row
@@ -869,28 +914,23 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  closeSearchBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#3C3C43',
   },
   searchInputWrapper: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     height: 44,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 22,
     paddingHorizontal: 16,
   },
   searchInput: {
     flex: 1,
     fontSize: 17,
-    color: '#000',
+    color: '#fff',
     paddingVertical: 0,
   },
   searchInputIcon: {
@@ -903,13 +943,13 @@ const styles = StyleSheet.create({
   langBadge: {
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 16,
   },
   langBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#3C3C43',
+    color: '#fff',
   },
 
   // State A: Default Content
@@ -919,7 +959,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#000',
+    color: '#fff',
     marginBottom: 14,
   },
   recentRow: {
@@ -932,28 +972,25 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
   },
-  recentIconText: {
-    fontSize: 14,
-  },
   recentLabel: {
     flex: 1,
     fontSize: 16,
-    color: '#000',
+    color: '#fff',
   },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14,
     padding: 14,
-    shadowColor: '#000',
+    shadowColor: '#5E2B96',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -973,7 +1010,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '600',
-    color: '#000',
+    color: '#fff',
     textAlign: 'right',
   },
   categoryChevron: {
@@ -996,10 +1033,10 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 17,
-    color: '#8e8e93',
+    color: 'rgba(255,255,255,0.5)',
   },
   resultCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 16,
     marginHorizontal: 0,
     padding: 14,
@@ -1026,7 +1063,7 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   resultIconGlobe: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#5E2B96',
   },
   resultIconStar: {
     backgroundColor: '#40C4C1',
@@ -1041,16 +1078,16 @@ const styles = StyleSheet.create({
   resultTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#000',
+    color: '#fff',
   },
   resultSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: 'rgba(255,255,255,0.6)',
     marginTop: 2,
   },
   guidesBtn: {
     marginTop: 12,
-    backgroundColor: '#E6F9F9',
+    backgroundColor: 'rgba(64, 196, 193, 0.15)',
     borderRadius: 20,
     paddingVertical: 10,
     alignItems: 'center',
@@ -1070,14 +1107,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#1A1D20',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
     paddingTop: 24,
-    shadowColor: '#000',
+    shadowColor: '#5E2B96',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 16,
   },
@@ -1088,7 +1125,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -1101,7 +1138,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#fff',
     marginBottom: 16,
     paddingRight: 40,
   },
@@ -1114,7 +1151,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#64748b',
+    color: 'rgba(255,255,255,0.6)',
   },
   audioContainer: {
     flexDirection: 'row',
@@ -1145,7 +1182,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
-    color: '#475569',
+    color: 'rgba(255,255,255,0.8)',
   },
   noAudioContainer: {
     flexDirection: 'row',
@@ -1153,7 +1190,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     paddingVertical: 20,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 12,
   },
   mutedIcon: {
@@ -1162,7 +1199,7 @@ const styles = StyleSheet.create({
   noAudioText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#64748b',
+    color: 'rgba(255,255,255,0.5)',
   },
 
   // Language Picker Modal
@@ -1173,20 +1210,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   langModalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1A1D20',
     borderRadius: 14,
     padding: 20,
     width: 220,
-    shadowColor: '#000',
+    shadowColor: '#5E2B96',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
   },
   langModalTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#333',
+    color: '#fff',
     marginBottom: 12,
     textAlign: 'center',
   },
@@ -1197,11 +1234,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   langOptionSelected: {
-    backgroundColor: '#40C4C115',
+    backgroundColor: 'rgba(64, 196, 193, 0.15)',
   },
   langOptionText: {
     fontSize: 16,
-    color: '#333',
+    color: 'rgba(255,255,255,0.8)',
   },
   langOptionTextSelected: {
     color: '#40C4C1',
@@ -1209,7 +1246,7 @@ const styles = StyleSheet.create({
   },
   premiumVoiceDivider: {
     height: 1,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     marginVertical: 12,
   },
   premiumVoiceRow: {
@@ -1221,13 +1258,18 @@ const styles = StyleSheet.create({
   premiumVoiceLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: '#fff',
+  },
+  premiumVoiceLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   premiumVoiceToggle: {
     width: 44,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#cbd5e1',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     paddingHorizontal: 2,
   },
@@ -1245,7 +1287,7 @@ const styles = StyleSheet.create({
   },
   premiumVoiceHint: {
     fontSize: 11,
-    color: '#94a3b8',
+    color: 'rgba(255,255,255,0.4)',
     marginTop: 6,
     paddingHorizontal: 4,
   },
