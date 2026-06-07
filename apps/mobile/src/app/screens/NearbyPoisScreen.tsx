@@ -5,11 +5,11 @@ import {
   Dimensions,
   FlatList,
   I18nManager,
-  Image,
   Keyboard,
   Modal,
   NativeEventEmitter,
   NativeModules,
+  Platform,
   SafeAreaView,
   ScrollView,
   Settings,
@@ -19,29 +19,40 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Geolocation from 'react-native-geolocation-service';
+import {
+  X,
+  Search,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Globe,
+  Play,
+  Pause,
+  VolumeX,
+  Mic,
+} from 'lucide-react-native';
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
 
-// Brand icons
-const ICONS = {
-  search: require('../../../assets/icons/search.png'),
-  close: require('../../../assets/icons/close.png'),
-  recent: require('../../../assets/icons/recent.png'),
-  landmark: require('../../../assets/icons/landmark.png'),
-  globe: require('../../../assets/icons/globe.png'),
-  chevronLeft: require('../../../assets/icons/chevron-left.png'),
-  chevronRight: require('../../../assets/icons/chevron-right.png'),
-  play: require('../../../assets/icons/play.png'),
-  pause: require('../../../assets/icons/pause.png'),
-  muted: require('../../../assets/icons/muted.png'),
-  mic: require('../../../assets/icons/mic.png'),
+// Unified icon colors
+const ICON_COLOR = '#1E1950';
+const ICON_COLOR_MUTED = '#9994A8';
+const ICON_COLOR_TEAL = '#40C4C1';
+
+// Cross-platform typography normalization
+const FONT_FAMILY = Platform.OS === 'ios' ? 'Arial' : 'sans-serif';
+const TEXT_BASE = {
+  fontFamily: FONT_FAMILY,
+  includeFontPadding: false,
+  textAlignVertical: 'center' as const,
 };
 
 // Backend API call
@@ -618,10 +629,11 @@ export function NearbyPoisScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Free Exploration Map */}
+      {/* Free Exploration Map — Google Maps on both platforms */}
       <MapView
         ref={mapRef}
         style={styles.map}
+        provider={PROVIDER_GOOGLE}
         initialRegion={{
           latitude: 32.0853, // Tel Aviv
           longitude: 34.7818,
@@ -632,17 +644,45 @@ export function NearbyPoisScreen() {
         showsPointsOfInterest
         showsCompass
         showsMyLocationButton={false}
+        toolbarEnabled={false}
+        zoomControlEnabled={false}
+        mapPadding={{ top: 0, right: 0, bottom: PANEL_MAX_HEIGHT, left: 0 }}
         onPress={(e) => handleMapPress(e.nativeEvent.coordinate)}
       >
-        {/* Temporary marker at clicked location */}
+        {/* Custom marker at tapped location */}
         {tempMarkerCoords && (
           <Marker
             coordinate={tempMarkerCoords}
-            pinColor="#f59e0b"
             title={poiData?.name || 'טוען...'}
-          />
+          >
+            <View style={styles.customMarker}>
+              <MapPin size={22} color="#FFFFFF" fill="#f59e0b" />
+            </View>
+          </Marker>
         )}
       </MapView>
+
+      {/* My Location Button */}
+      <TouchableOpacity
+        style={[styles.myLocationBtn, { top: insets.top + 12 }]}
+        activeOpacity={0.7}
+        onPress={() => {
+          Geolocation.getCurrentPosition(
+            (position) => {
+              mapRef.current?.animateToRegion({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              }, 500);
+            },
+            (error) => console.warn('[Location] Error:', error.message),
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 },
+          );
+        }}
+      >
+        <Globe size={24} color={ICON_COLOR} />
+      </TouchableOpacity>
 
       {/* Apple Maps-Style Search Panel */}
       <Animated.View
@@ -668,11 +708,11 @@ export function NearbyPoisScreen() {
             onPress={handleCancelSearch}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Image source={ICONS.close} style={styles.iconSmall} />
+           <X size={20} color={ICON_COLOR} />
           </TouchableOpacity>
 
           <View style={styles.searchInputWrapper}>
-            <TextInput
+           <TextInput
               style={[styles.searchInput, dirStyles.textAlign, dirStyles.writingDirection]}
               placeholder={t(deviceLanguage, 'searchPlaceholder')}
               placeholderTextColor="#9994A8"
@@ -684,7 +724,7 @@ export function NearbyPoisScreen() {
               autoCorrect={false}
             />
             <View style={styles.searchInputIcon}>
-              <Image source={ICONS.search} style={styles.iconSmall} />
+              <Search size={20} color={ICON_COLOR_MUTED} />
             </View>
           </View>
 
@@ -716,16 +756,16 @@ export function NearbyPoisScreen() {
                   <TouchableOpacity
                     key={`recent-${idx}`}
                     style={[styles.recentRow, dirStyles.row]}
-                    activeOpacity={0.6}
+                    activeOpacity={0.7}
                     onPress={() => handleSearchResultSelect(item)}
                   >
                     <View style={styles.recentIcon}>
-                      <Image source={ICONS.recent} style={styles.iconTiny} />
+                      <Clock size={18} color={ICON_COLOR_MUTED} />
                     </View>
                     <Text style={[styles.recentLabel, dirStyles.textAlign]} numberOfLines={1}>
                       {item.title}
                     </Text>
-                    <Image source={rtl ? ICONS.chevronLeft : ICONS.chevronRight} style={styles.iconChevron} />
+                    {rtl ? <ChevronLeft size={20} color="#C7C7CC" /> : <ChevronRight size={20} color="#C7C7CC" />}
                   </TouchableOpacity>
                 ))}
               </>
@@ -737,7 +777,7 @@ export function NearbyPoisScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.categoryRow, dirStyles.row]}
-              activeOpacity={0.6}
+              activeOpacity={0.7}
               onPress={() => {
                 setIsLoadingNearby(true);
                 setNearbySearchDone(false);
@@ -778,10 +818,10 @@ export function NearbyPoisScreen() {
               }}
             >
               <View style={styles.categoryIcon}>
-                <Image source={ICONS.landmark} style={styles.iconMedium} />
+                <MapPin size={24} color={ICON_COLOR} />
               </View>
               <Text style={[styles.categoryLabel, dirStyles.textAlign]}>{t(deviceLanguage, 'landmarks')}</Text>
-              <Image source={rtl ? ICONS.chevronLeft : ICONS.chevronRight} style={styles.iconChevron} />
+              {rtl ? <ChevronLeft size={20} color="#C7C7CC" /> : <ChevronRight size={20} color="#C7C7CC" />}
             </TouchableOpacity>
 
             {/* Nearby POIs results */}
@@ -801,7 +841,7 @@ export function NearbyPoisScreen() {
                   <TouchableOpacity
                     key={`nearby-${item.title}-${index}`}
                     style={styles.resultCard}
-                    activeOpacity={0.6}
+                    activeOpacity={0.7}
                     onPress={() => {
                       const coord: Coordinate = { latitude: item.lat, longitude: item.lng };
                       setTempMarkerCoords(coord);
@@ -811,7 +851,7 @@ export function NearbyPoisScreen() {
                     }}
                   >
                     <View style={styles.categoryIcon}>
-                      <Image source={ICONS.landmark} style={styles.iconMedium} />
+                      <MapPin size={24} color={ICON_COLOR} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.resultTitle, dirStyles.textAlign]}>{item.title}</Text>
@@ -850,14 +890,14 @@ export function NearbyPoisScreen() {
                         isTopMatch && styles.resultCardTop,
                       ]}
                       onPress={() => handleSearchResultSelect(item)}
-                      activeOpacity={0.6}
+                      activeOpacity={0.7}
                     >
                       <View style={[styles.resultRow, dirStyles.row]}>
                         <View style={[
                           styles.resultIconCircle,
                           isTopMatch ? styles.resultIconGlobe : styles.resultIconStar,
                         ]}>
-                          <Image source={item.type === 'city' ? ICONS.globe : ICONS.landmark} style={styles.iconMedium} />
+                          {item.type === 'city' ? <Globe size={24} color={ICON_COLOR} /> : <MapPin size={24} color={ICON_COLOR} />}
                         </View>
                         <View style={styles.resultTextBlock}>
                           <Text style={[styles.resultTitle, dirStyles.textAlign]} numberOfLines={1}>
@@ -896,9 +936,9 @@ export function NearbyPoisScreen() {
         <TouchableOpacity
           style={styles.confirmPoiBtn}
           onPress={handleConfirmPoi}
-          activeOpacity={0.8}
+          activeOpacity={0.7}
         >
-          <Image source={ICONS.landmark} style={styles.iconSmall} />
+          <MapPin size={20} color="#FFFFFF" />
           <Text style={styles.confirmPoiText}>{t(deviceLanguage, 'explorePoi')}</Text>
         </TouchableOpacity>
       )}
@@ -918,7 +958,7 @@ export function NearbyPoisScreen() {
               onPress={handleClose}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Image source={ICONS.close} style={styles.iconSmall} />
+              <X size={20} color={ICON_COLOR} />
             </TouchableOpacity>
 
             {/* POI Title */}
@@ -945,9 +985,9 @@ export function NearbyPoisScreen() {
                     isPlaying && !isPaused && styles.playBtnActive,
                   ]}
                   onPress={handlePlayPause}
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
                 >
-                  <Image source={isPlaying && !isPaused ? ICONS.pause : ICONS.play} style={styles.iconPlay} />
+                  {isPlaying && !isPaused ? <Pause size={28} color={ICON_COLOR} /> : <Play size={28} color={ICON_COLOR} />}
                 </TouchableOpacity>
                 <Text style={[styles.audioLabel, dirStyles.textAlign]}>
                   {isPlaying && !isPaused ? t(deviceLanguage, 'nowPlaying') : t(deviceLanguage, 'playAudio')}
@@ -958,7 +998,7 @@ export function NearbyPoisScreen() {
             {/* No audio content */}
             {!isLoading && !poiData?.masterScript && !isLoading && (
               <View style={styles.noAudioContainer}>
-                <Image source={ICONS.muted} style={styles.iconLarge} />
+                <VolumeX size={28} color={ICON_COLOR_MUTED} />
                 <Text style={styles.noAudioText}>{t(deviceLanguage, 'noAudio')}</Text>
               </View>
             )}
@@ -1004,7 +1044,7 @@ export function NearbyPoisScreen() {
               onPress={() => handleTogglePremiumVoice(!usePremiumVoice)}
             >
               <View style={styles.premiumVoiceLabelRow}>
-                <Image source={ICONS.mic} style={styles.iconTiny} />
+                <Mic size={16} color={ICON_COLOR} />
                 <Text style={styles.premiumVoiceLabel}>Premium AI Voice</Text>
               </View>
               <View style={[
@@ -1035,6 +1075,34 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
+  customMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f59e0b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  myLocationBtn: {
+    position: 'absolute',
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
 
   // Apple Maps Search Panel (Bottom Card)
   searchPanel: {
@@ -1042,12 +1110,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(245, 247, 250, 0.94)',
+    backgroundColor: '#F2F2F7',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 16,
     paddingBottom: 24,
-    shadowColor: '#1E1950',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 16,
@@ -1055,37 +1123,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  // Brand icon sizes
-  iconTiny: {
-    width: 20,
-    height: 20,
-    resizeMode: 'contain',
-  },
-  iconSmall: {
-    width: 24,
-    height: 24,
-    resizeMode: 'contain',
-  },
-  iconMedium: {
-    width: 28,
-    height: 28,
-    resizeMode: 'contain',
-  },
-  iconChevron: {
-    width: 20,
-    height: 20,
-    resizeMode: 'contain',
-  },
-  iconPlay: {
-    width: 28,
-    height: 28,
-    resizeMode: 'contain',
-  },
-  iconLarge: {
-    width: 34,
-    height: 34,
-    resizeMode: 'contain',
-  },
   dragHandle: {
     alignItems: 'center',
     paddingTop: 10,
@@ -1109,7 +1146,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(30, 25, 80, 0.08)',
+    backgroundColor: '#E5E5EA',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1118,11 +1155,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 44,
-    backgroundColor: 'rgba(30, 25, 80, 0.08)',
+    backgroundColor: '#E5E5EA',
     borderRadius: 22,
     paddingHorizontal: 16,
   },
   searchInput: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     flex: 1,
     fontSize: 17,
     color: '#1E1950',
@@ -1131,10 +1171,6 @@ const styles = StyleSheet.create({
   searchInputIcon: {
     marginLeft: 8,
   },
-  searchInputIconText: {
-    fontSize: 16,
-    opacity: 0.5,
-  },
   langBadge: {
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -1142,6 +1178,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   langBadgeText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 12,
     fontWeight: '600',
     color: '#1E1950',
@@ -1152,6 +1191,9 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   sectionTitle: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 20,
     fontWeight: '700',
     color: '#1E1950',
@@ -1171,6 +1213,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   recentLabel: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     flex: 1,
     fontSize: 16,
     color: '#1E1950',
@@ -1178,14 +1223,14 @@ const styles = StyleSheet.create({
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 25, 80, 0.06)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     padding: 14,
-    shadowColor: '#5E2B96',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
   categoryIcon: {
     width: 48,
@@ -1194,10 +1239,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 12,
   },
-  categoryIconText: {
-    fontSize: 18,
-  },
   categoryLabel: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     flex: 1,
     fontSize: 17,
     fontWeight: '600',
@@ -1205,9 +1250,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   categoryChevron: {
-    fontSize: 22,
     color: '#C7C7CC',
-    fontWeight: '300',
   },
 
   // State B: Results Content
@@ -1223,10 +1266,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 17,
     color: '#7A7594',
   },
   noResultsText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 15,
     color: '#7A7594',
     marginTop: 16,
@@ -1234,16 +1283,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   resultCard: {
-    backgroundColor: 'rgba(30, 25, 80, 0.06)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     marginHorizontal: 0,
     padding: 14,
     marginBottom: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
   resultCardTop: {
     marginBottom: 12,
@@ -1263,34 +1312,40 @@ const styles = StyleSheet.create({
   },
   resultIconStar: {
   },
-  resultIconText: {
-    fontSize: 18,
-  },
   resultTextBlock: {
     flex: 1,
     alignItems: 'flex-end',
   },
   resultTitle: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 17,
     fontWeight: '600',
     color: '#1E1950',
   },
   resultSubtitle: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 14,
     color: '#5E5880',
     marginTop: 2,
   },
   guidesBtn: {
     marginTop: 12,
-    backgroundColor: 'rgba(64, 196, 193, 0.15)',
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
     borderRadius: 20,
     paddingVertical: 10,
     alignItems: 'center',
   },
   guidesBtnText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 15,
     fontWeight: '600',
-    color: '#40C4C1',
+    color: '#007AFF',
   },
   resultDivider: {
     height: 0,
@@ -1315,6 +1370,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   confirmPoiText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 16,
     fontWeight: '700',
     color: '#1E1950',
@@ -1324,19 +1382,19 @@ const styles = StyleSheet.create({
   poiModalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   poiModalContent: {
-    backgroundColor: 'rgba(245, 247, 250, 0.94)',
+    backgroundColor: '#F2F2F7',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     padding: 24,
     paddingTop: 28,
-    shadowColor: '#1E1950',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 24,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 10,
   },
   closeBtn: {
     position: 'absolute',
@@ -1345,17 +1403,15 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(30, 25, 80, 0.08)',
+    backgroundColor: '#E5E5EA',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
   },
-  closeBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#64748b',
-  },
   title: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 22,
     fontWeight: '700',
     color: '#1E1950',
@@ -1370,6 +1426,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 14,
     color: '#5E5880',
   },
@@ -1383,22 +1442,22 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(30, 25, 80, 0.08)',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#1E1950',
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 6,
+    elevation: 3,
   },
   playBtnActive: {
-    backgroundColor: 'rgba(30, 25, 80, 0.12)',
-  },
-  playBtnIcon: {
-    fontSize: 24,
+    backgroundColor: '#E5E5EA',
   },
   audioLabel: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
@@ -1410,13 +1469,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     paddingVertical: 20,
-    backgroundColor: 'rgba(30, 25, 80, 0.06)',
+    backgroundColor: '#E5E5EA',
     borderRadius: 12,
   },
-  mutedIcon: {
-    fontSize: 28,
-  },
   noAudioText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 14,
     fontWeight: '600',
     color: '#7A7594',
@@ -1441,6 +1500,9 @@ const styles = StyleSheet.create({
     elevation: 24,
   },
   langModalTitle: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 16,
     fontWeight: '700',
     color: '#1E1950',
@@ -1457,6 +1519,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(64, 196, 193, 0.15)',
   },
   langOptionText: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 16,
     color: '#2D2660',
   },
@@ -1476,6 +1541,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   premiumVoiceLabel: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 14,
     fontWeight: '600',
     color: '#1E1950',
@@ -1506,6 +1574,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
   premiumVoiceHint: {
+    fontFamily: FONT_FAMILY,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 11,
     color: '#9994A8',
     marginTop: 6,
