@@ -282,7 +282,7 @@ async function fetchNearbyPois(
   lat: number,
   lng: number,
   language: string,
-  radius: number = 100,
+  radius: number = 500,
 ): Promise<NearbyPoi[]> {
   try {
     const params = new URLSearchParams({
@@ -786,7 +786,7 @@ export function NearbyPoisScreen() {
 
             {/* Nearby POIs results */}
             {isLoadingNearby && (
-              <View style={styles.loadingState}>
+              <View style={[styles.loadingState, { marginTop: 12 }]}>
                 <ActivityIndicator size="small" color="#40C4C1" />
               </View>
             )}
@@ -796,7 +796,7 @@ export function NearbyPoisScreen() {
               </Text>
             )}
             {nearbyPois.length > 0 && (
-              <View>
+              <View style={{ marginTop: 12 }}>
                 {nearbyPois.map((item, index) => (
                   <TouchableOpacity
                     key={`nearby-${item.title}-${index}`}
@@ -1168,7 +1168,7 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 12,
+    marginRight: 8,
   },
   recentLabel: {
     flex: 1,
@@ -1324,28 +1324,28 @@ const styles = StyleSheet.create({
   poiModalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   poiModalContent: {
-    backgroundColor: '#1A1D20',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: 'rgba(245, 247, 250, 0.94)',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     padding: 24,
     paddingTop: 28,
-    shadowColor: '#5E2B96',
+    shadowColor: '#1E1950',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.15,
     shadowRadius: 16,
-    elevation: 16,
+    elevation: 24,
   },
   closeBtn: {
     position: 'absolute',
     top: 16,
     right: 16,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(30, 25, 80, 0.06)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(30, 25, 80, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -1383,17 +1383,17 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#5E2B96',
+    backgroundColor: 'rgba(30, 25, 80, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#5E2B96',
+    shadowColor: '#1E1950',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 6,
   },
   playBtnActive: {
-    backgroundColor: '#4A2278',
+    backgroundColor: 'rgba(30, 25, 80, 0.12)',
   },
   playBtnIcon: {
     fontSize: 24,
@@ -1410,7 +1410,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     paddingVertical: 20,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(30, 25, 80, 0.06)',
     borderRadius: 12,
   },
   mutedIcon: {
@@ -1425,20 +1425,20 @@ const styles = StyleSheet.create({
   // Language Picker Modal
   langModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   langModalContent: {
-    backgroundColor: '#1A1D20',
-    borderRadius: 14,
+    backgroundColor: 'rgba(245, 247, 250, 0.94)',
+    borderRadius: 32,
     padding: 20,
     width: 220,
-    shadowColor: '#5E2B96',
+    shadowColor: '#1E1950',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 24,
   },
   langModalTitle: {
     fontSize: 16,
@@ -1489,7 +1489,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(30, 25, 80, 0.12)',
     justifyContent: 'center',
     paddingHorizontal: 2,
   },

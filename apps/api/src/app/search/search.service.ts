@@ -30,7 +30,8 @@ export class SearchService {
   }
 
   /**
-   * Search for nearby tourist POIs within a radius using Nominatim
+   * Search for nearby tourist POIs within a radius using Overpass API
+   * Overpass is purpose-built for spatial category queries, unlike Nominatim free-text search
    */
   async searchNearbyPois(
     lat: number,
@@ -41,84 +42,49 @@ export class SearchService {
     try {
       this.logger.log(`Nearby POI search at [${lat}, ${lng}] radius=${radiusM}m lang=${lang}`);
 
-      const acceptLanguage = lang === 'en'
-        ? 'en,*;q=0.5'
-        : `${lang},en;q=0.9,*;q=0.5`;
+      // Overpass QL query: find tourism, historic, and amenity POIs within radius
+      const query = `
+        [out:json][timeout:10];
+        (
+          nwr["tourism"~"museum|attraction|monument|viewpoint|artwork|gallery|information"](around:${radiusM},${lat},${lng});
+          nwr["historic"~"monument|memorial|castle|ruins|archaeological_site|fort|palace"](around:${radiusM},${lat},${lng});
+          nwr["amenity"~"place_of_worship|theatre|arts_centre"](around:${radiusM},${lat},${lng});
+          nwr["leisure"~"park|garden"](around:${radiusM},${lat},${lng});
+        );
+        out center 20;
+      `;
 
-      // Convert radius to a viewbox (approximate degrees)
-      const delta = radiusM / 111000; // ~111km per degree
-
-      await this.waitForNominatimSlot();
-      const response = await axios.get(
-        'https://nominatim.openstreetmap.org/search',
+      const response = await axios.post(
+        'https://overpass-api.de/api/interpreter',
+        `data=${encodeURIComponent(query)}`,
         {
-          params: {
-            q: 'tourism',
-            format: 'json',
-            viewbox: `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`,
-            bounded: '1',
-            limit: '10',
-            addressdetails: '1',
-            'accept-language': acceptLanguage,
-          },
-          headers: { ...HEADERS, 'Accept-Language': acceptLanguage },
-          timeout: 8000,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...HEADERS },
+          timeout: 12000,
         },
       );
 
-      const results = response.data || [];
-
-      // Also try amenity search for places of worship, museums, etc.
-      await this.waitForNominatimSlot();
-      const amenityResponse = await axios.get(
-        'https://nominatim.openstreetmap.org/search',
-        {
-          params: {
-            q: 'museum OR monument OR church OR synagogue OR mosque OR castle OR palace',
-            format: 'json',
-            viewbox: `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`,
-            bounded: '1',
-            limit: '10',
-            addressdetails: '1',
-            'accept-language': acceptLanguage,
-          },
-          headers: { ...HEADERS, 'Accept-Language': acceptLanguage },
-          timeout: 8000,
-        },
-      );
-
-      const amenityResults = amenityResponse.data || [];
-
-      // Merge and deduplicate by name
-      const all = [...results, ...amenityResults];
+      const elements = response.data?.elements || [];
       const seen = new Set<string>();
       const pois: { title: string; description: string; lat: number; lng: number }[] = [];
 
-      for (const item of all) {
-        const name = item.name || item.display_name?.split(',')[0];
+      for (const el of elements) {
+        // Prefer localized name, fallback to English, then default name
+        const name = el.tags?.[`name:${lang}`] || el.tags?.['name:en'] || el.tags?.name;
         if (!name || seen.has(name)) continue;
         seen.add(name);
 
-        const itemClass = item.class?.toLowerCase() || '';
-        const itemType = item.type?.toLowerCase() || '';
+        // Get coordinates (nodes have lat/lon directly, ways/relations use center)
+        const elLat = el.lat ?? el.center?.lat;
+        const elLng = el.lon ?? el.center?.lon;
+        if (!elLat || !elLng) continue;
 
-        // Filter to tourist-relevant places only
-        const isTourist =
-          itemClass === 'tourism' ||
-          itemClass === 'historic' ||
-          itemClass === 'amenity' && ['place_of_worship', 'theatre', 'arts_centre'].includes(itemType) ||
-          itemClass === 'leisure' && ['park', 'garden'].includes(itemType) ||
-          itemType === 'museum' ||
-          itemType === 'monument' ||
-          itemType === 'attraction';
-
-        if (!isTourist) continue;
+        const type = el.tags?.tourism || el.tags?.historic || el.tags?.amenity || el.tags?.leisure || '';
 
         pois.push({
           title: name,
-          description: item.display_name?.split(',').slice(1, 3).join(',').trim() || '',
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon),
+          description: type.replace(/_/g, ' '),
+          lat: elLat,
+          lng: elLng,
         });
       }
 
