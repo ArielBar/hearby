@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   I18nManager,
+  Image,
   Keyboard,
   Modal,
   NativeEventEmitter,
@@ -24,6 +25,15 @@ import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Geolocation from 'react-native-geolocation-service';
+import { usePremium } from '../context/PremiumContext';
+import { PaywallModal } from './PaywallModal';
+import { FeatureFlags } from '../config/featureFlags';
+import {
+  RewardedAd,
+  RewardedAdEventType,
+  AdEventType,
+  TestIds,
+} from 'react-native-google-mobile-ads';
 import {
   X,
   Search,
@@ -37,15 +47,30 @@ import {
   VolumeX,
   Mic,
 } from 'lucide-react-native';
+
+// Pre-instantiate the rewarded ad with Google Test ID (only if ads enabled)
+const rewardedAd = FeatureFlags.ENABLE_ADS
+  ? RewardedAd.createForAdRequest(TestIds.REWARDED, {
+      requestNonPersonalizedAdsOnly: true,
+    })
+  : null;
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
 
-// Unified icon colors
-const ICON_COLOR = '#1E1950';
-const ICON_COLOR_MUTED = '#9994A8';
-const ICON_COLOR_TEAL = '#40C4C1';
+// Unified color palette
+const COLOR_DEEP_PLUM = '#453266';    // Primary Linework & Outlines
+const COLOR_ROYAL_PURPLE = '#8D65B2'; // Accent Elements (Crown / Headphones)
+const COLOR_TEAL_MINT = '#83C5BE';    // Main Body Fill (Location Pin)
+const COLOR_SOFT_LAVENDER = '#B79ED4';// Secondary Highlights / Shading
+const COLOR_PASTEL_PINK = '#E295A3';  // Accent Detail (Tongue)
+const COLOR_WHITE = '#FFFFFF';        // Background & Face Fill
+
+// Icon color aliases
+const ICON_COLOR = COLOR_TEAL_MINT;
+const ICON_COLOR_MUTED = COLOR_TEAL_MINT;
+const ICON_COLOR_TEAL = COLOR_TEAL_MINT;
 
 // Cross-platform typography normalization
 const FONT_FAMILY = Platform.OS === 'ios' ? 'Arial' : 'sans-serif';
@@ -315,6 +340,8 @@ async function fetchNearbyPois(
 export function NearbyPoisScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
+  const { isPremium } = usePremium();
+  const [showPaywall, setShowPaywall] = useState(false);
 
   // Detect device language once on mount (for Nominatim accept-language header)
   const [deviceLanguage, setDeviceLanguage] = useState(() => getDeviceLanguage());
@@ -389,6 +416,65 @@ export function NearbyPoisScreen() {
     setUsePremiumVoice(enabled);
     AsyncStorage.setItem('hearby_premium_voice', enabled ? 'true' : 'false');
   }, []);
+
+  // --- Rewarded Ad state machine (disabled for premium users or when ads flag is off) ---
+  const [adLoaded, setAdLoaded] = useState(false);
+  const pendingPlayAfterAdRef = useRef(false);
+
+  useEffect(() => {
+    // Skip ad loading if ads are disabled or user is premium
+    if (!FeatureFlags.ENABLE_ADS || isPremium || !rewardedAd) {
+      setAdLoaded(false);
+      return;
+    }
+
+    const loadedUnsub = rewardedAd.addAdEventListener(
+      RewardedAdEventType.LOADED,
+      () => setAdLoaded(true),
+    );
+    const earnedUnsub = rewardedAd.addAdEventListener(
+      RewardedAdEventType.EARNED_REWARD,
+      () => {
+        // Reward earned — playback will start on ad close
+      },
+    );
+    const closedUnsub = rewardedAd.addAdEventListener(
+      AdEventType.CLOSED,
+      () => {
+        // Ad dismissed — start playback if pending
+        if (pendingPlayAfterAdRef.current) {
+          pendingPlayAfterAdRef.current = false;
+          startAudioPlayback();
+        }
+        // Pre-load next ad
+        setAdLoaded(false);
+        rewardedAd.load();
+      },
+    );
+    const errorUnsub = rewardedAd.addAdEventListener(
+      AdEventType.ERROR,
+      () => {
+        // Ad failed — fallback: play immediately
+        if (pendingPlayAfterAdRef.current) {
+          pendingPlayAfterAdRef.current = false;
+          startAudioPlayback();
+        }
+        setAdLoaded(false);
+        // Retry loading after a brief delay
+        setTimeout(() => rewardedAd.load(), 5000);
+      },
+    );
+
+    // Initial load
+    rewardedAd.load();
+
+    return () => {
+      loadedUnsub();
+      earnedUnsub();
+      closedUnsub();
+      errorUnsub();
+    };
+  }, [isPremium]);
 
   // Direction-aware layout based on selected language
   const rtl = useMemo(() => isRTL(deviceLanguage), [deviceLanguage]);
@@ -596,36 +682,55 @@ export function NearbyPoisScreen() {
   }, []);
 
   // Play/pause TTS handler
+  const startAudioPlayback = useCallback(() => {
+    if (!poiData?.masterScript) return;
+
+    if (usePremiumVoice) {
+      // Stream from OpenAI TTS via backend
+      const params = new URLSearchParams({
+        text: poiData.masterScript,
+        lang: deviceLanguage,
+      });
+      const audioUrl = `${BASE_URL}/pois/audio?${params}`;
+      HearbyTts.playAudioFromURL(audioUrl);
+    } else {
+      // On-device Siri-style TTS
+      const hebrewPattern = /[\u0590-\u05FF]/;
+      const hasHebrew = hebrewPattern.test(poiData.masterScript);
+      const lang = hasHebrew ? 'he-IL' : 'en-US';
+      HearbyTts.setLanguage(lang);
+      HearbyTts.speak(poiData.masterScript);
+    }
+    setIsPlaying(true);
+    setIsPaused(false);
+  }, [poiData, usePremiumVoice, deviceLanguage]);
+
   const handlePlayPause = useCallback(() => {
     if (!poiData?.masterScript) return;
 
     if (isPlaying) {
+      // Toggle pause/resume on currently playing audio
       if (isPaused) {
         HearbyTts.resume();
       } else {
         HearbyTts.pause();
       }
     } else {
-      if (usePremiumVoice) {
-        // Stream from OpenAI TTS via backend
-        const params = new URLSearchParams({
-          text: poiData.masterScript,
-          lang: deviceLanguage,
-        });
-        const audioUrl = `${BASE_URL}/pois/audio?${params}`;
-        HearbyTts.playAudioFromURL(audioUrl);
-      } else {
-        // On-device Siri-style TTS
-        const hebrewPattern = /[\u0590-\u05FF]/;
-        const hasHebrew = hebrewPattern.test(poiData.masterScript);
-        const lang = hasHebrew ? 'he-IL' : 'en-US';
-        HearbyTts.setLanguage(lang);
-        HearbyTts.speak(poiData.masterScript);
+      // Ads disabled or premium — play immediately
+      if (!FeatureFlags.ENABLE_ADS || isPremium) {
+        startAudioPlayback();
+        return;
       }
-      setIsPlaying(true);
-      setIsPaused(false);
+      // New playback request — show ad wall if available
+      if (adLoaded && rewardedAd) {
+        pendingPlayAfterAdRef.current = true;
+        rewardedAd.show();
+      } else {
+        // Ad not loaded — seamless fallback, play immediately
+        startAudioPlayback();
+      }
     }
-  }, [poiData, isPlaying, isPaused, usePremiumVoice, deviceLanguage]);
+  }, [poiData, isPlaying, isPaused, isPremium, adLoaded, startAudioPlayback]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -655,7 +760,7 @@ export function NearbyPoisScreen() {
             title={poiData?.name || 'טוען...'}
           >
             <View style={styles.customMarker}>
-              <MapPin size={22} color="#FFFFFF" fill="#f59e0b" />
+              <MapPin size={22} color="#FFFFFF" fill={ICON_COLOR_TEAL} />
             </View>
           </Marker>
         )}
@@ -714,7 +819,7 @@ export function NearbyPoisScreen() {
            <TextInput
               style={[styles.searchInput, dirStyles.textAlign, dirStyles.writingDirection]}
               placeholder={t(deviceLanguage, 'searchPlaceholder')}
-              placeholderTextColor="#9994A8"
+              placeholderTextColor="#B79ED4"
               value={searchQuery}
               onChangeText={setSearchQuery}
               onFocus={() => setIsSearchFocused(true)}
@@ -759,12 +864,12 @@ export function NearbyPoisScreen() {
                     onPress={() => handleSearchResultSelect(item)}
                   >
                     <View style={styles.recentIcon}>
-                      <Clock size={18} color={ICON_COLOR_MUTED} />
+                      <Clock size={18} color={ICON_COLOR} />
                     </View>
                     <Text style={[styles.recentLabel, dirStyles.textAlign]} numberOfLines={1}>
                       {item.title}
                     </Text>
-                    {rtl ? <ChevronLeft size={20} color="#C7C7CC" /> : <ChevronRight size={20} color="#C7C7CC" />}
+                    {rtl ? <ChevronLeft size={20} color={ICON_COLOR_MUTED} /> : <ChevronRight size={20} color={ICON_COLOR_MUTED} />}
                   </TouchableOpacity>
                 ))}
               </>
@@ -820,7 +925,7 @@ export function NearbyPoisScreen() {
                 <MapPin size={24} color={ICON_COLOR} />
               </View>
               <Text style={[styles.categoryLabel, dirStyles.textAlign]}>{t(deviceLanguage, 'landmarks')}</Text>
-              {rtl ? <ChevronLeft size={20} color="#C7C7CC" /> : <ChevronRight size={20} color="#C7C7CC" />}
+              {rtl ? <ChevronLeft size={20} color={ICON_COLOR_MUTED} /> : <ChevronRight size={20} color={ICON_COLOR_MUTED} />}
             </TouchableOpacity>
 
             {/* Nearby POIs results */}
@@ -1059,9 +1164,30 @@ export function NearbyPoisScreen() {
             <Text style={styles.premiumVoiceHint}>
               {usePremiumVoice ? 'OpenAI TTS (costs apply)' : 'On-device Siri voice (free)'}
             </Text>
+
+            {/* Upgrade to Premium CTA */}
+            {FeatureFlags.ENABLE_PURCHASES && !isPremium && (
+              <>
+                <View style={styles.premiumVoiceDivider} />
+                <TouchableOpacity
+                  style={styles.upgradePremiumBtn}
+                  onPress={() => setShowPaywall(true)}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={require('../assets/premium-icon.png')}
+                    style={styles.upgradePremiumIcon}
+                  />
+                  <Text style={styles.upgradePremiumBtnText}> שדרג ל-Premium</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Paywall Modal */}
+      <PaywallModal visible={showPaywall} onClose={() => setShowPaywall(false)} />
     </SafeAreaView>
   );
 }
@@ -1164,7 +1290,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     flex: 1,
     fontSize: 17,
-    color: '#1E1950',
+    color: '#453266',
     paddingVertical: 0,
   },
   searchInputIcon: {
@@ -1182,7 +1308,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 12,
     fontWeight: '600',
-    color: '#1E1950',
+    color: '#453266',
   },
 
   // State A: Default Content
@@ -1195,7 +1321,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 20,
     fontWeight: '700',
-    color: '#1E1950',
+    color: '#453266',
     marginBottom: 14,
   },
   recentRow: {
@@ -1217,7 +1343,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     flex: 1,
     fontSize: 16,
-    color: '#1E1950',
+    color: '#453266',
   },
   categoryRow: {
     flexDirection: 'row',
@@ -1245,11 +1371,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '600',
-    color: '#1E1950',
+    color: '#453266',
     textAlign: 'right',
   },
   categoryChevron: {
-    color: '#C7C7CC',
+    color: '#453266',
   },
 
   // State B: Results Content
@@ -1269,14 +1395,14 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
     fontSize: 17,
-    color: '#7A7594',
+    color: '#B79ED4',
   },
   noResultsText: {
     fontFamily: FONT_FAMILY,
     includeFontPadding: false,
     textAlignVertical: 'center',
     fontSize: 15,
-    color: '#7A7594',
+    color: '#B79ED4',
     marginTop: 16,
     paddingVertical: 20,
     textAlign: 'center',
@@ -1321,14 +1447,14 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 17,
     fontWeight: '600',
-    color: '#1E1950',
+    color: '#453266',
   },
   resultSubtitle: {
     fontFamily: FONT_FAMILY,
     includeFontPadding: false,
     textAlignVertical: 'center',
     fontSize: 14,
-    color: '#5E5880',
+    color: '#8D65B2',
     marginTop: 2,
   },
   guidesBtn: {
@@ -1344,7 +1470,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 15,
     fontWeight: '600',
-    color: '#007AFF',
+    color: '#83C5BE',
   },
   resultDivider: {
     height: 0,
@@ -1358,11 +1484,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#40C4C1',
+    backgroundColor: '#83C5BE',
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderRadius: 28,
-    shadowColor: '#40C4C1',
+    shadowColor: '#83C5BE',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
@@ -1374,7 +1500,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 16,
     fontWeight: '700',
-    color: '#1E1950',
+    color: '#453266',
   },
 
   // POI Player Modal
@@ -1413,7 +1539,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 22,
     fontWeight: '700',
-    color: '#1E1950',
+    color: '#453266',
     marginBottom: 16,
     paddingRight: 40,
   },
@@ -1429,7 +1555,7 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
     fontSize: 14,
-    color: '#5E5880',
+    color: '#8D65B2',
   },
   audioContainer: {
     flexDirection: 'row',
@@ -1460,7 +1586,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
-    color: '#2D2660',
+    color: '#453266',
   },
   noAudioContainer: {
     flexDirection: 'row',
@@ -1477,7 +1603,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 14,
     fontWeight: '600',
-    color: '#7A7594',
+    color: '#B79ED4',
   },
 
   // Language Picker Modal
@@ -1492,7 +1618,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     padding: 20,
     width: 220,
-    shadowColor: '#1E1950',
+    shadowColor: '#453266',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 16,
@@ -1504,7 +1630,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 16,
     fontWeight: '700',
-    color: '#1E1950',
+    color: '#453266',
     marginBottom: 12,
     textAlign: 'center',
   },
@@ -1522,10 +1648,10 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
     fontSize: 16,
-    color: '#2D2660',
+    color: '#453266',
   },
   langOptionTextSelected: {
-    color: '#40C4C1',
+    color: '#83C5BE',
     fontWeight: '600',
   },
   premiumVoiceDivider: {
@@ -1545,7 +1671,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 14,
     fontWeight: '600',
-    color: '#1E1950',
+    color: '#453266',
   },
   premiumVoiceLabelRow: {
     flexDirection: 'row',
@@ -1561,7 +1687,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   premiumVoiceToggleOn: {
-    backgroundColor: '#40C4C1',
+    backgroundColor: '#83C5BE',
   },
   premiumVoiceThumb: {
     width: 20,
@@ -1577,8 +1703,35 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
     fontSize: 11,
-    color: '#9994A8',
+    color: '#453266',
     marginTop: 6,
     paddingHorizontal: 4,
+  },
+  upgradePremiumBtn: {
+    backgroundColor: '#7C3AED',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginTop: 12,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  upgradePremiumBtnText: {
+    fontFamily: FONT_FAMILY,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    writingDirection: 'rtl',
+  },
+  upgradePremiumIcon: {
+    width: 22,
+    height: 22,
+    resizeMode: 'contain',
   },
 });

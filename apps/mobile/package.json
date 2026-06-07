@@ -17,6 +17,8 @@
     "@react-navigation/native-stack": "*",
     "react-native-screens": "*",
     "react-native-safe-area-context": "*",
-    "react-native-geocoding": "*"
+    "react-native-geocoding": "*",
+    "react-native-google-mobile-ads": "*",
+    "react-native-purchases": "*"
   }
 }
