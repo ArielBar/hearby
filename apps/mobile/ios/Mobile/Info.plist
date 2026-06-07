@@ -44,7 +44,11 @@
 		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app uses your location to show nearby points of interest.</string>
+	<string>HearBy uses your location to find and narrate nearby points of interest around you.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This allows HearBy to provide you with a personalized ad experience. You can change this at any time in Settings.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>waze</string>
