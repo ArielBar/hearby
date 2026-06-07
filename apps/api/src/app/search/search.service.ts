@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { QueryCorrectionService } from './query-correction.service';
 
 const HEADERS = {
   'User-Agent': 'HearbyApp/1.0 (https://github.com/ArielBar/hearby)',
@@ -9,6 +10,8 @@ const HEADERS = {
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
   private readonly timeout = 5000;
+
+  constructor(private readonly queryCorrection: QueryCorrectionService) {}
 
   // Rate limiter: max 1 Nominatim request per 1.1 seconds
   private lastNominatimRequest = 0;
@@ -107,11 +110,17 @@ export class SearchService {
     { title: string; description: string; lat: number | null; lng: number | null; type: 'city' | 'poi' }[]
   > {
     try {
-      this.logger.log(`Nominatim search: "${query}" in ${lang}`);
+      // AI-powered query correction: fix typos, complete partial words
+      const correctedQuery = await this.queryCorrection.correct(query, lang);
+      const finalQuery = correctedQuery || query.trim();
+
+      if (finalQuery !== query.trim()) {
+        this.logger.log(`Nominatim search: "${query}" → corrected to "${finalQuery}" (${lang})`);
+      } else {
+        this.logger.log(`Nominatim search: "${finalQuery}" in ${lang}`);
+      }
 
       // Build accept-language header with fallbacks for better multilingual support
-      // Format: "primary-language,en;q=0.9,*;q=0.5"
-      // This tells Nominatim: prefer {lang}, fallback to English, then anything
       const acceptLanguage = lang === 'en' 
         ? 'en,*;q=0.5' 
         : `${lang},en;q=0.9,*;q=0.5`;
@@ -122,11 +131,11 @@ export class SearchService {
         'https://nominatim.openstreetmap.org/search',
         {
           params: {
-            q: query.trim(),
+            q: finalQuery,
             format: 'json',
             addressdetails: '1',
-            namedetails: '1',  // Get name variations (name:en, name:he, etc.)
-            extratags: '1',    // Get extra tags
+            namedetails: '1',
+            extratags: '1',
             limit: '8',
             'accept-language': acceptLanguage,
           },
