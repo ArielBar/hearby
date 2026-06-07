@@ -22,6 +22,29 @@ export class SearchController {
     return this.searchService.searchNominatim(query.trim(), detectedLang);
   }
 
+  /**
+   * Find nearby tourist POIs within a radius using Nominatim
+   * GET /api/search/nearby?lat=...&lng=...&lang=en&radius=100
+   */
+  @Get('nearby')
+  async nearbyPois(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('lang') lang?: string,
+    @Query('radius') radius?: string,
+  ) {
+    if (!lat || !lng) {
+      return [];
+    }
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return [];
+    }
+    const radiusM = Math.min(parseInt(radius || '100', 10) || 100, 500);
+    return this.searchService.searchNearbyPois(latitude, longitude, lang || 'en', radiusM);
+  }
+
   private detectLanguage(text: string): string {
     if (/[\u0590-\u05FF]/.test(text)) return 'he';
     if (/[\u0600-\u06FF]/.test(text)) return 'ar';

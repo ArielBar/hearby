@@ -11,6 +11,7 @@ import {
   NativeEventEmitter,
   NativeModules,
   SafeAreaView,
+  ScrollView,
   Settings,
   StyleSheet,
   Text,
@@ -22,6 +23,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Geolocation from 'react-native-geolocation-service';
 const { HearbyTts } = NativeModules;
 const ttsEmitter = new NativeEventEmitter(HearbyTts);
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -51,7 +53,7 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     searchPlaceholder: 'חיפוש...',
     recents: 'אחרונים',
     nearbyExploration: 'חיפוש בסביבה',
-    landmarks: 'אתרים וציוני דרך',
+    landmarks: 'אתרים וציוני דרך בקרבת מקום',
     noResults: 'לא נמצאו תוצאות',
     guides: 'מדריכים',
     loading: 'טוען מידע...',
@@ -60,12 +62,14 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     playAudio: 'הקש להשמעת תוכן',
     nowPlaying: 'מושמע כעת...',
     noAudio: 'אין תוכן שמע זמין למקום זה',
+    explorePoi: 'גלה מקום זה',
+    noPlacesFound: 'לא נמצאו מקומות',
   },
   en: {
     searchPlaceholder: 'Search...',
     recents: 'Recents',
     nearbyExploration: 'Explore Nearby',
-    landmarks: 'Landmarks & Attractions',
+    landmarks: 'Nearby Landmarks & Attractions',
     noResults: 'No results found',
     guides: 'Guides',
     loading: 'Loading...',
@@ -74,12 +78,14 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     playAudio: 'Tap to play audio',
     nowPlaying: 'Now playing...',
     noAudio: 'No audio content available',
+    explorePoi: 'Explore this spot',
+    noPlacesFound: 'No places found nearby',
   },
   es: {
     searchPlaceholder: 'Buscar...',
     recents: 'Recientes',
     nearbyExploration: 'Explorar Cerca',
-    landmarks: 'Monumentos y Atracciones',
+    landmarks: 'Monumentos y Atracciones Cercanos',
     noResults: 'Sin resultados',
     guides: 'Guías',
     loading: 'Cargando...',
@@ -88,12 +94,14 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     playAudio: 'Toca para reproducir',
     nowPlaying: 'Reproduciendo...',
     noAudio: 'No hay audio disponible',
+    explorePoi: 'Explorar este lugar',
+    noPlacesFound: 'No se encontraron lugares',
   },
   it: {
     searchPlaceholder: 'Cerca...',
     recents: 'Recenti',
     nearbyExploration: 'Esplora Dintorni',
-    landmarks: 'Monumenti e Attrazioni',
+    landmarks: 'Monumenti e Attrazioni Vicini',
     noResults: 'Nessun risultato',
     guides: 'Guide',
     loading: 'Caricamento...',
@@ -102,12 +110,14 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     playAudio: 'Tocca per ascoltare',
     nowPlaying: 'In riproduzione...',
     noAudio: 'Nessun audio disponibile',
+    explorePoi: 'Esplora questo luogo',
+    noPlacesFound: 'Nessun luogo trovato',
   },
   fr: {
     searchPlaceholder: 'Rechercher...',
     recents: 'Récents',
     nearbyExploration: 'Explorer les Environs',
-    landmarks: 'Sites et Monuments',
+    landmarks: 'Sites et Monuments à Proximité',
     noResults: 'Aucun résultat',
     guides: 'Guides',
     loading: 'Chargement...',
@@ -116,6 +126,8 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     playAudio: 'Appuyez pour écouter',
     nowPlaying: 'Lecture en cours...',
     noAudio: 'Aucun audio disponible',
+    explorePoi: 'Explorer ce lieu',
+    noPlacesFound: 'Aucun lieu trouvé',
   },
 };
 
@@ -256,6 +268,39 @@ async function fetchAutocomplete(
   }
 }
 
+interface NearbyPoi {
+  title: string;
+  description: string;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Fetch nearby tourist POIs within radius
+ */
+async function fetchNearbyPois(
+  lat: number,
+  lng: number,
+  language: string,
+  radius: number = 100,
+): Promise<NearbyPoi[]> {
+  try {
+    const params = new URLSearchParams({
+      lat: lat.toString(),
+      lng: lng.toString(),
+      lang: language,
+      radius: radius.toString(),
+    });
+    const res = await fetch(`${BASE_URL}/search/nearby?${params}`);
+    if (!res.ok) return [];
+    const results = await res.json();
+    return Array.isArray(results) ? results : [];
+  } catch (error) {
+    console.error('[NearbyPois] Failed to fetch:', error);
+    return [];
+  }
+}
+
 export function NearbyPoisScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
@@ -291,6 +336,14 @@ export function NearbyPoisScreen() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [recentSearches, setRecentSearches] = useState<AutocompleteResult[]>([]);
+
+  // Panel collapse state
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+
+  // Nearby POIs state
+  const [nearbyPois, setNearbyPois] = useState<NearbyPoi[]>([]);
+  const [isLoadingNearby, setIsLoadingNearby] = useState(false);
+  const [nearbySearchDone, setNearbySearchDone] = useState(false);
 
   // Debounce search input (500ms) to avoid Nominatim 429 rate limits
   useEffect(() => {
@@ -334,7 +387,7 @@ export function NearbyPoisScreen() {
     writingDirection: { writingDirection: rtl ? 'rtl' : 'ltr' } as const,
   }), [rtl]);
 
-  // Targeted fetch: only when coordinate is selected
+  // Targeted fetch: only when coordinate is confirmed by user
   const { data: poiData, isLoading } = useQuery({
     queryKey: [
       'poi',
@@ -347,6 +400,34 @@ export function NearbyPoisScreen() {
     staleTime: 7 * 24 * 60 * 60 * 1000, // 1 week
     gcTime: 7 * 24 * 60 * 60 * 1000,
   });
+
+  // Show POI player modal when data is fetched
+  const [showPoiModal, setShowPoiModal] = useState(false);
+
+  useEffect(() => {
+    if (selectedCoordinate && (isLoading || poiData)) {
+      setShowPoiModal(true);
+    }
+  }, [selectedCoordinate, isLoading, poiData]);
+
+  // Save to recents when POI enrichment returns a name
+  useEffect(() => {
+    if (poiData?.name && selectedCoordinate) {
+      const entry: AutocompleteResult = {
+        title: poiData.name,
+        description: '',
+        lat: selectedCoordinate.latitude,
+        lng: selectedCoordinate.longitude,
+        type: 'poi',
+      };
+      setRecentSearches(prev => {
+        const filtered = prev.filter(r => r.title !== entry.title);
+        const updated = [entry, ...filtered].slice(0, 8);
+        AsyncStorage.setItem('hearby_recents', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [poiData?.name, selectedCoordinate]);
 
   // Autocomplete search query - uses Nominatim OpenStreetMap API
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
@@ -390,22 +471,32 @@ export function NearbyPoisScreen() {
     };
   }, []);
 
-  // Handle map press - send coordinates directly to backend
+  // Handle map press - place marker only, don't call server yet
   const handleMapPress = useCallback(
     (coordinate: Coordinate) => {
       console.log('[NearbyPoisScreen] Map pressed at:', coordinate);
 
-      // Show temp marker immediately for visual feedback
+      // Only place marker for visual feedback
       setTempMarkerCoords(coordinate);
-      setSelectedCoordinate(coordinate);
 
-      // Stop any current playback
-      HearbyTts.stop();
-      setIsPlaying(false);
-      isPaused && setIsPaused(false);
+      // Clear any previous selection (stop API/playback)
+      if (selectedCoordinate) {
+        setSelectedCoordinate(null);
+        setShowPoiModal(false);
+        HearbyTts.stop();
+        setIsPlaying(false);
+        setIsPaused(false);
+      }
     },
-    [isPaused],
+    [selectedCoordinate],
   );
+
+  // User confirms interest in the POI - triggers API call
+  const handleConfirmPoi = useCallback(() => {
+    if (!tempMarkerCoords) return;
+    console.log('[NearbyPoisScreen] User confirmed POI exploration');
+    setSelectedCoordinate(tempMarkerCoords);
+  }, [tempMarkerCoords]);
 
   // Handle search result selection with smart zoom based on type
   const handleSearchResultSelect = useCallback((result: AutocompleteResult) => {
@@ -457,7 +548,7 @@ export function NearbyPoisScreen() {
       setTempMarkerCoords(null);
       setSelectedCoordinate(null);
     } else {
-      // POI: Tight zoom, place marker, trigger audio sheet
+      // POI: Tight zoom, place marker, show confirm button
       console.log('[NearbyPoisScreen] Flying to POI with tight zoom');
       
       mapRef.current?.animateToRegion(
@@ -470,7 +561,7 @@ export function NearbyPoisScreen() {
         1500,
       );
 
-      // Set marker and trigger POI enrichment automatically
+      // Set marker only — user must confirm to trigger enrichment
       setTempMarkerCoords(coordinate);
       setSelectedCoordinate(coordinate);
     }
@@ -483,10 +574,11 @@ export function NearbyPoisScreen() {
     Keyboard.dismiss();
   }, []);
 
-  // Close bottom sheet and clear selection
+  // Close POI modal and clear selection
   const handleClose = useCallback(() => {
     setSelectedCoordinate(null);
     setTempMarkerCoords(null);
+    setShowPoiModal(false);
     HearbyTts.stop();
     setIsPlaying(false);
     setIsPaused(false);
@@ -556,14 +648,19 @@ export function NearbyPoisScreen() {
       <Animated.View
         style={[
           styles.searchPanel,
-          { maxHeight: PANEL_MAX_HEIGHT },
+          { maxHeight: isPanelCollapsed ? 36 : PANEL_MAX_HEIGHT },
         ]}
       >
-        {/* Drag Handle */}
-        <View style={styles.dragHandle}>
+        {/* Drag Handle — tap to collapse/expand */}
+        <TouchableOpacity
+          style={styles.dragHandle}
+          activeOpacity={0.7}
+          onPress={() => setIsPanelCollapsed(prev => !prev)}
+        >
           <View style={styles.dragHandleBar} />
-        </View>
+        </TouchableOpacity>
 
+        {!isPanelCollapsed && (<>
         {/* Header Row: Close + Search Input */}
         <View style={[styles.searchHeader, dirStyles.row]}>
           <TouchableOpacity
@@ -578,7 +675,7 @@ export function NearbyPoisScreen() {
             <TextInput
               style={[styles.searchInput, dirStyles.textAlign, dirStyles.writingDirection]}
               placeholder={t(deviceLanguage, 'searchPlaceholder')}
-              placeholderTextColor="rgba(255,255,255,0.4)"
+              placeholderTextColor="#9994A8"
               value={searchQuery}
               onChangeText={setSearchQuery}
               onFocus={() => setIsSearchFocused(true)}
@@ -601,6 +698,12 @@ export function NearbyPoisScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
 
         {/* State A: Default View (empty query) */}
         {!searchQuery.trim() && (
@@ -636,12 +739,42 @@ export function NearbyPoisScreen() {
               style={[styles.categoryRow, dirStyles.row]}
               activeOpacity={0.6}
               onPress={() => {
-                // Trigger POI discovery from current map center
-                mapRef.current?.getCamera().then(camera => {
-                  if (camera?.center) {
-                    handleMapPress(camera.center);
-                  }
-                });
+                setIsLoadingNearby(true);
+                setNearbySearchDone(false);
+                setNearbyPois([]);
+                Geolocation.getCurrentPosition(
+                  (position) => {
+                    fetchNearbyPois(
+                      position.coords.latitude,
+                      position.coords.longitude,
+                      deviceLanguage,
+                    ).then((results) => {
+                      setNearbyPois(results);
+                      setIsLoadingNearby(false);
+                      setNearbySearchDone(true);
+                    });
+                  },
+                  (error) => {
+                    console.warn('[NearbyPoisScreen] GPS error, falling back to map center:', error.message);
+                    mapRef.current?.getCamera().then(camera => {
+                      if (camera?.center) {
+                        fetchNearbyPois(
+                          camera.center.latitude,
+                          camera.center.longitude,
+                          deviceLanguage,
+                        ).then((results) => {
+                          setNearbyPois(results);
+                          setIsLoadingNearby(false);
+                          setNearbySearchDone(true);
+                        });
+                      } else {
+                        setIsLoadingNearby(false);
+                        setNearbySearchDone(true);
+                      }
+                    });
+                  },
+                  { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 },
+                );
               }}
             >
               <View style={styles.categoryIcon}>
@@ -650,6 +783,48 @@ export function NearbyPoisScreen() {
               <Text style={[styles.categoryLabel, dirStyles.textAlign]}>{t(deviceLanguage, 'landmarks')}</Text>
               <Image source={rtl ? ICONS.chevronLeft : ICONS.chevronRight} style={styles.iconChevron} />
             </TouchableOpacity>
+
+            {/* Nearby POIs results */}
+            {isLoadingNearby && (
+              <View style={styles.loadingState}>
+                <ActivityIndicator size="small" color="#40C4C1" />
+              </View>
+            )}
+            {nearbySearchDone && !isLoadingNearby && nearbyPois.length === 0 && (
+              <Text style={[styles.noResultsText, dirStyles.textAlign]}>
+                {t(deviceLanguage, 'noPlacesFound')}
+              </Text>
+            )}
+            {nearbyPois.length > 0 && (
+              <View>
+                {nearbyPois.map((item, index) => (
+                  <TouchableOpacity
+                    key={`nearby-${item.title}-${index}`}
+                    style={styles.resultCard}
+                    activeOpacity={0.6}
+                    onPress={() => {
+                      const coord: Coordinate = { latitude: item.lat, longitude: item.lng };
+                      setTempMarkerCoords(coord);
+                      setSelectedCoordinate(coord);
+                      setNearbyPois([]);
+                      setNearbySearchDone(false);
+                    }}
+                  >
+                    <View style={styles.categoryIcon}>
+                      <Image source={ICONS.landmark} style={styles.iconMedium} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.resultTitle, dirStyles.textAlign]}>{item.title}</Text>
+                      {item.description ? (
+                        <Text style={[styles.resultSubtitle, dirStyles.textAlign]} numberOfLines={1}>
+                          {item.description}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -712,65 +887,84 @@ export function NearbyPoisScreen() {
             )}
           </View>
         )}
+        </ScrollView>
+        </>)}
       </Animated.View>
 
-      {/* Conditional Bottom Sheet */}
-      {selectedCoordinate && (
-        <View
-          style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}
+      {/* Confirm POI Button - shown when marker placed but not yet confirmed */}
+      {tempMarkerCoords && !selectedCoordinate && (
+        <TouchableOpacity
+          style={styles.confirmPoiBtn}
+          onPress={handleConfirmPoi}
+          activeOpacity={0.8}
         >
-          {/* Close button */}
-          <TouchableOpacity
-            style={styles.closeBtn}
-            onPress={handleClose}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Image source={ICONS.close} style={styles.iconSmall} />
-          </TouchableOpacity>
-
-          {/* POI Title */}
-          <Text style={[styles.title, dirStyles.textAlign]} numberOfLines={2}>
-            {isLoading
-              ? t(deviceLanguage, 'searchingPoi')
-              : poiData?.name || t(deviceLanguage, 'unknownPlace')}
-          </Text>
-
-          {/* Loading State - Wikipedia fetch */}
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#5E2B96" />
-              <Text style={styles.loadingText}>{t(deviceLanguage, 'loading')}</Text>
-            </View>
-          )}
-
-          {/* Condition A: Audio content available */}
-          {!isLoading && !!poiData?.masterScript && (
-            <View style={[styles.audioContainer, dirStyles.row]}>
-              <TouchableOpacity
-                style={[
-                  styles.playBtn,
-                  isPlaying && !isPaused && styles.playBtnActive,
-                ]}
-                onPress={handlePlayPause}
-                activeOpacity={0.8}
-              >
-                <Image source={isPlaying && !isPaused ? ICONS.pause : ICONS.play} style={styles.iconPlay} />
-              </TouchableOpacity>
-              <Text style={[styles.audioLabel, dirStyles.textAlign]}>
-                {isPlaying && !isPaused ? t(deviceLanguage, 'nowPlaying') : t(deviceLanguage, 'playAudio')}
-              </Text>
-            </View>
-          )}
-
-          {/* Condition B: No audio content */}
-          {!isLoading && !poiData?.masterScript && (
-            <View style={styles.noAudioContainer}>
-              <Image source={ICONS.muted} style={styles.iconLarge} />
-              <Text style={styles.noAudioText}>{t(deviceLanguage, 'noAudio')}</Text>
-            </View>
-          )}
-        </View>
+          <Image source={ICONS.landmark} style={styles.iconSmall} />
+          <Text style={styles.confirmPoiText}>{t(deviceLanguage, 'explorePoi')}</Text>
+        </TouchableOpacity>
       )}
+
+      {/* POI Player Modal - slides up over everything */}
+      <Modal
+        visible={showPoiModal}
+        transparent
+        animationType="slide"
+        onRequestClose={handleClose}
+      >
+        <View style={styles.poiModalOverlay}>
+          <View style={[styles.poiModalContent, { paddingBottom: insets.bottom + 20 }]}>
+            {/* Close button */}
+            <TouchableOpacity
+              style={styles.closeBtn}
+              onPress={handleClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Image source={ICONS.close} style={styles.iconSmall} />
+            </TouchableOpacity>
+
+            {/* POI Title */}
+            <Text style={[styles.title, dirStyles.textAlign]} numberOfLines={2}>
+              {isLoading
+                ? t(deviceLanguage, 'searchingPoi')
+                : poiData?.name || t(deviceLanguage, 'unknownPlace')}
+            </Text>
+
+            {/* Loading State */}
+            {isLoading && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#40C4C1" />
+                <Text style={styles.loadingText}>{t(deviceLanguage, 'loading')}</Text>
+              </View>
+            )}
+
+            {/* Audio content available */}
+            {!isLoading && !!poiData?.masterScript && (
+              <View style={[styles.audioContainer, dirStyles.row]}>
+                <TouchableOpacity
+                  style={[
+                    styles.playBtn,
+                    isPlaying && !isPaused && styles.playBtnActive,
+                  ]}
+                  onPress={handlePlayPause}
+                  activeOpacity={0.8}
+                >
+                  <Image source={isPlaying && !isPaused ? ICONS.pause : ICONS.play} style={styles.iconPlay} />
+                </TouchableOpacity>
+                <Text style={[styles.audioLabel, dirStyles.textAlign]}>
+                  {isPlaying && !isPaused ? t(deviceLanguage, 'nowPlaying') : t(deviceLanguage, 'playAudio')}
+                </Text>
+              </View>
+            )}
+
+            {/* No audio content */}
+            {!isLoading && !poiData?.masterScript && !isLoading && (
+              <View style={styles.noAudioContainer}>
+                <Image source={ICONS.muted} style={styles.iconLarge} />
+                <Text style={styles.noAudioText}>{t(deviceLanguage, 'noAudio')}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
       {/* Language Picker Modal */}
       <Modal
         visible={showLangPicker}
@@ -848,16 +1042,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(26, 29, 32, 0.95)',
+    backgroundColor: 'rgba(245, 247, 250, 0.94)',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 16,
     paddingBottom: 24,
-    shadowColor: '#5E2B96',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
+    shadowColor: '#1E1950',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
     elevation: 24,
+    overflow: 'hidden',
   },
 
   // Brand icon sizes
@@ -900,7 +1095,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: '#40C4C1',
+    backgroundColor: '#C8C5D0',
   },
 
   // Header Row
@@ -914,7 +1109,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(30, 25, 80, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -923,14 +1118,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 44,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(30, 25, 80, 0.08)',
     borderRadius: 22,
     paddingHorizontal: 16,
   },
   searchInput: {
     flex: 1,
     fontSize: 17,
-    color: '#fff',
+    color: '#1E1950',
     paddingVertical: 0,
   },
   searchInputIcon: {
@@ -943,13 +1138,13 @@ const styles = StyleSheet.create({
   langBadge: {
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(30, 25, 80, 0.08)',
     borderRadius: 16,
   },
   langBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#fff',
+    color: '#1E1950',
   },
 
   // State A: Default Content
@@ -959,7 +1154,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
+    color: '#1E1950',
     marginBottom: 14,
   },
   recentRow: {
@@ -971,8 +1166,6 @@ const styles = StyleSheet.create({
   recentIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(94, 43, 150, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
@@ -980,12 +1173,12 @@ const styles = StyleSheet.create({
   recentLabel: {
     flex: 1,
     fontSize: 16,
-    color: '#fff',
+    color: '#1E1950',
   },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(30, 25, 80, 0.06)',
     borderRadius: 14,
     padding: 14,
     shadowColor: '#5E2B96',
@@ -997,8 +1190,6 @@ const styles = StyleSheet.create({
   categoryIcon: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: '#40C4C1',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
@@ -1010,7 +1201,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '600',
-    color: '#fff',
+    color: '#1E1950',
     textAlign: 'right',
   },
   categoryChevron: {
@@ -1033,10 +1224,17 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 17,
-    color: 'rgba(255,255,255,0.5)',
+    color: '#7A7594',
+  },
+  noResultsText: {
+    fontSize: 15,
+    color: '#7A7594',
+    marginTop: 16,
+    paddingVertical: 20,
+    textAlign: 'center',
   },
   resultCard: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(30, 25, 80, 0.06)',
     borderRadius: 16,
     marginHorizontal: 0,
     padding: 14,
@@ -1057,16 +1255,13 @@ const styles = StyleSheet.create({
   resultIconCircle: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
   },
   resultIconGlobe: {
-    backgroundColor: '#5E2B96',
   },
   resultIconStar: {
-    backgroundColor: '#40C4C1',
   },
   resultIconText: {
     fontSize: 18,
@@ -1078,11 +1273,11 @@ const styles = StyleSheet.create({
   resultTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#fff',
+    color: '#1E1950',
   },
   resultSubtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
+    color: '#5E5880',
     marginTop: 2,
   },
   guidesBtn: {
@@ -1101,21 +1296,46 @@ const styles = StyleSheet.create({
     height: 0,
   },
 
-  // Bottom Sheet Styles (POI Audio Player)
-  bottomSheet: {
+  // Confirm POI Button (floating above search panel)
+  confirmPoiBtn: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: SCREEN_HEIGHT * 0.55 + 16,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#40C4C1',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 28,
+    shadowColor: '#40C4C1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  confirmPoiText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E1950',
+  },
+
+  // POI Player Modal
+  poiModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  poiModalContent: {
     backgroundColor: '#1A1D20',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    paddingTop: 24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingTop: 28,
     shadowColor: '#5E2B96',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
     elevation: 16,
   },
   closeBtn: {
@@ -1125,7 +1345,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(30, 25, 80, 0.06)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -1138,7 +1358,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#fff',
+    color: '#1E1950',
     marginBottom: 16,
     paddingRight: 40,
   },
@@ -1151,7 +1371,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
+    color: '#5E5880',
   },
   audioContainer: {
     flexDirection: 'row',
@@ -1182,7 +1402,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.8)',
+    color: '#2D2660',
   },
   noAudioContainer: {
     flexDirection: 'row',
@@ -1199,7 +1419,7 @@ const styles = StyleSheet.create({
   noAudioText: {
     fontSize: 14,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.5)',
+    color: '#7A7594',
   },
 
   // Language Picker Modal
@@ -1223,7 +1443,7 @@ const styles = StyleSheet.create({
   langModalTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#fff',
+    color: '#1E1950',
     marginBottom: 12,
     textAlign: 'center',
   },
@@ -1238,7 +1458,7 @@ const styles = StyleSheet.create({
   },
   langOptionText: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#2D2660',
   },
   langOptionTextSelected: {
     color: '#40C4C1',
@@ -1246,7 +1466,7 @@ const styles = StyleSheet.create({
   },
   premiumVoiceDivider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(30, 25, 80, 0.06)',
     marginVertical: 12,
   },
   premiumVoiceRow: {
@@ -1258,7 +1478,7 @@ const styles = StyleSheet.create({
   premiumVoiceLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: '#1E1950',
   },
   premiumVoiceLabelRow: {
     flexDirection: 'row',
@@ -1287,7 +1507,7 @@ const styles = StyleSheet.create({
   },
   premiumVoiceHint: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
+    color: '#9994A8',
     marginTop: 6,
     paddingHorizontal: 4,
   },

@@ -30,6 +30,107 @@ export class SearchService {
   }
 
   /**
+   * Search for nearby tourist POIs within a radius using Nominatim
+   */
+  async searchNearbyPois(
+    lat: number,
+    lng: number,
+    lang: string = 'en',
+    radiusM: number = 100,
+  ): Promise<{ title: string; description: string; lat: number; lng: number }[]> {
+    try {
+      this.logger.log(`Nearby POI search at [${lat}, ${lng}] radius=${radiusM}m lang=${lang}`);
+
+      const acceptLanguage = lang === 'en'
+        ? 'en,*;q=0.5'
+        : `${lang},en;q=0.9,*;q=0.5`;
+
+      // Convert radius to a viewbox (approximate degrees)
+      const delta = radiusM / 111000; // ~111km per degree
+
+      await this.waitForNominatimSlot();
+      const response = await axios.get(
+        'https://nominatim.openstreetmap.org/search',
+        {
+          params: {
+            q: 'tourism',
+            format: 'json',
+            viewbox: `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`,
+            bounded: '1',
+            limit: '10',
+            addressdetails: '1',
+            'accept-language': acceptLanguage,
+          },
+          headers: { ...HEADERS, 'Accept-Language': acceptLanguage },
+          timeout: 8000,
+        },
+      );
+
+      const results = response.data || [];
+
+      // Also try amenity search for places of worship, museums, etc.
+      await this.waitForNominatimSlot();
+      const amenityResponse = await axios.get(
+        'https://nominatim.openstreetmap.org/search',
+        {
+          params: {
+            q: 'museum OR monument OR church OR synagogue OR mosque OR castle OR palace',
+            format: 'json',
+            viewbox: `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`,
+            bounded: '1',
+            limit: '10',
+            addressdetails: '1',
+            'accept-language': acceptLanguage,
+          },
+          headers: { ...HEADERS, 'Accept-Language': acceptLanguage },
+          timeout: 8000,
+        },
+      );
+
+      const amenityResults = amenityResponse.data || [];
+
+      // Merge and deduplicate by name
+      const all = [...results, ...amenityResults];
+      const seen = new Set<string>();
+      const pois: { title: string; description: string; lat: number; lng: number }[] = [];
+
+      for (const item of all) {
+        const name = item.name || item.display_name?.split(',')[0];
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+
+        const itemClass = item.class?.toLowerCase() || '';
+        const itemType = item.type?.toLowerCase() || '';
+
+        // Filter to tourist-relevant places only
+        const isTourist =
+          itemClass === 'tourism' ||
+          itemClass === 'historic' ||
+          itemClass === 'amenity' && ['place_of_worship', 'theatre', 'arts_centre'].includes(itemType) ||
+          itemClass === 'leisure' && ['park', 'garden'].includes(itemType) ||
+          itemType === 'museum' ||
+          itemType === 'monument' ||
+          itemType === 'attraction';
+
+        if (!isTourist) continue;
+
+        pois.push({
+          title: name,
+          description: item.display_name?.split(',').slice(1, 3).join(',').trim() || '',
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon),
+        });
+      }
+
+      this.logger.log(`Found ${pois.length} nearby POIs`);
+      return pois.slice(0, 10);
+    } catch (error) {
+      this.logger.error(`Nearby POI search failed: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Search using Nominatim OpenStreetMap API (proxied through backend)
    * Provides native, multilingual worldwide search without client-side ATS issues
    */

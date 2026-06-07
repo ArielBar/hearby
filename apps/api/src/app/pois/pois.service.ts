@@ -17,7 +17,7 @@ const DATA_PREFIX = 'poi:data:';
 const AUDIO_PREFIX = 'audio:';
 const AUDIO_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const DEFAULT_LANG = 'en';
-const SEARCH_RADIUS_M = 50; // Match within 50 meters
+const SEARCH_RADIUS_M = 100; // Match within 100 meters
 
 /**
  * POI Service - Geospatial cache with AI enrichment
