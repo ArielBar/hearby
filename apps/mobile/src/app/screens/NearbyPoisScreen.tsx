@@ -862,33 +862,33 @@ const styles = StyleSheet.create({
 
   // Brand icon sizes
   iconTiny: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     resizeMode: 'contain',
   },
   iconSmall: {
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     resizeMode: 'contain',
   },
   iconMedium: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     resizeMode: 'contain',
   },
   iconChevron: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     resizeMode: 'contain',
   },
   iconPlay: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     resizeMode: 'contain',
   },
   iconLarge: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     resizeMode: 'contain',
   },
   dragHandle: {
@@ -969,10 +969,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   recentIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(94, 43, 150, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
@@ -995,9 +995,9 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   categoryIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#40C4C1',
     justifyContent: 'center',
     alignItems: 'center',
