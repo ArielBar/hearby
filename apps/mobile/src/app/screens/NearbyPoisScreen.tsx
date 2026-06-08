@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  FlatList,
   I18nManager,
   Image,
   Keyboard,
@@ -86,8 +85,9 @@ const TEXT_BASE = {
   textAlignVertical: 'center' as const,
 };
 
-// Backend API call
-const BASE_URL = 'https://hear-by.com/api';
+// Backend API URL (switches between local dev and production automatically)
+import { ENV } from '../config/env';
+const BASE_URL = ENV.API_URL;
 
 // Localized UI strings
 const UI_STRINGS: Record<string, Record<string, string>> = {
@@ -1091,74 +1091,70 @@ export function NearbyPoisScreen() {
                       <ActivityIndicator size="small" color="#40C4C1" />
                     </View>
                   ) : searchResults.length > 0 ? (
-                    <FlatList
-                      data={searchResults}
-                      keyExtractor={(item, index) => `${item.title}-${index}`}
-                      keyboardShouldPersistTaps="handled"
-                      showsVerticalScrollIndicator={false}
-                      renderItem={({ item, index }) => {
+                    <View>
+                      {searchResults.map((item, index) => {
                         const isTopMatch = index === 0 && item.type === 'city';
                         return (
-                          <TouchableOpacity
-                            style={[
-                              styles.resultCard,
-                              isTopMatch && styles.resultCardTop,
-                            ]}
-                            onPress={() => handleSearchResultSelect(item)}
-                            activeOpacity={0.7}
-                          >
-                            <View style={[styles.resultRow, dirStyles.row]}>
-                              <View
-                                style={[
-                                  styles.resultIconCircle,
-                                  isTopMatch
-                                    ? styles.resultIconGlobe
-                                    : styles.resultIconStar,
-                                ]}
-                              >
-                                {item.type === 'city' ? (
-                                  <Globe size={24} color={ICON_COLOR} />
-                                ) : (
-                                  <MapPin size={24} color={ICON_COLOR} />
-                                )}
-                              </View>
-                              <View style={styles.resultTextBlock}>
-                                <Text
+                          <React.Fragment key={`${item.title}-${index}`}>
+                            {index > 0 && <View style={styles.resultDivider} />}
+                            <TouchableOpacity
+                              style={[
+                                styles.resultCard,
+                                isTopMatch && styles.resultCardTop,
+                              ]}
+                              onPress={() => handleSearchResultSelect(item)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={[styles.resultRow, dirStyles.row]}>
+                                <View
                                   style={[
-                                    styles.resultTitle,
-                                    dirStyles.textAlign,
+                                    styles.resultIconCircle,
+                                    isTopMatch
+                                      ? styles.resultIconGlobe
+                                      : styles.resultIconStar,
                                   ]}
-                                  numberOfLines={1}
                                 >
-                                  {item.title}
-                                </Text>
-                                {item.description ? (
+                                  {item.type === 'city' ? (
+                                    <Globe size={24} color={ICON_COLOR} />
+                                  ) : (
+                                    <MapPin size={24} color={ICON_COLOR} />
+                                  )}
+                                </View>
+                                <View style={styles.resultTextBlock}>
                                   <Text
                                     style={[
-                                      styles.resultSubtitle,
+                                      styles.resultTitle,
                                       dirStyles.textAlign,
                                     ]}
                                     numberOfLines={1}
                                   >
-                                    {item.description}
+                                    {item.title}
                                   </Text>
-                                ) : null}
+                                  {item.description ? (
+                                    <Text
+                                      style={[
+                                        styles.resultSubtitle,
+                                        dirStyles.textAlign,
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {item.description}
+                                    </Text>
+                                  ) : null}
+                                </View>
                               </View>
-                            </View>
-                            {isTopMatch && (
-                              <View style={styles.guidesBtn}>
-                                <Text style={styles.guidesBtnText}>
-                                  {t(deviceLanguage, 'guides')}
-                                </Text>
-                              </View>
-                            )}
-                          </TouchableOpacity>
+                              {isTopMatch && (
+                                <View style={styles.guidesBtn}>
+                                  <Text style={styles.guidesBtnText}>
+                                    {t(deviceLanguage, 'guides')}
+                                  </Text>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          </React.Fragment>
                         );
-                      }}
-                      ItemSeparatorComponent={() => (
-                        <View style={styles.resultDivider} />
-                      )}
-                    />
+                      })}
+                    </View>
                   ) : (
                     <View style={styles.emptyState}>
                       <Text style={styles.emptyText}>

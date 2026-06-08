@@ -4,6 +4,43 @@
   "sourceRoot": "apps/mobile/src",
   "projectType": "application",
   "tags": [],
-  "// targets": "to see all targets run: nx show project mobile --web",
-  "targets": {}
+  "targets": {
+    "start": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx react-native start",
+        "cwd": "apps/mobile"
+      }
+    },
+    "run-ios": {
+      "executor": "nx:run-commands",
+      "defaultConfiguration": "development",
+      "options": {
+        "cwd": "apps/mobile"
+      },
+      "configurations": {
+        "development": {
+          "command": "npx react-native run-ios"
+        },
+        "production": {
+          "command": "npx react-native run-ios --mode Release"
+        }
+      }
+    },
+    "run-android": {
+      "executor": "nx:run-commands",
+      "defaultConfiguration": "development",
+      "options": {
+        "cwd": "apps/mobile"
+      },
+      "configurations": {
+        "development": {
+          "command": "npx react-native run-android"
+        },
+        "production": {
+          "command": "npx react-native run-android --mode=release"
+        }
+      }
+    }
+  }
 }

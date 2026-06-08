@@ -66,9 +66,27 @@ RCT_EXPORT_METHOD(activateAudioSession) {
 
 RCT_EXPORT_METHOD(speak:(NSString *)text) {
   dispatch_async(dispatch_get_main_queue(), ^{
+    // Re-activate audio session before each utterance to handle interruptions
+    NSError *sessionError = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayback
+                    mode:AVAudioSessionModeDefault
+                 options:AVAudioSessionCategoryOptionDuckOthers
+                   error:&sessionError];
+    [session setActive:YES error:&sessionError];
+    if (sessionError) {
+      NSLog(@"[HearbyTts] Audio session activation failed: %@", sessionError);
+    }
+
     if (self.synthesizer.isSpeaking) {
       [self.synthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
     }
+
+    // Workaround: iOS bug where AVSpeechSynthesizer silently fails after stop.
+    // Recreating the instance ensures a clean state for each new utterance.
+    self.synthesizer = [[AVSpeechSynthesizer alloc] init];
+    self.synthesizer.delegate = self;
+
     AVSpeechUtterance *utterance = [[AVSpeechUtterance alloc] initWithString:text];
 
     // Select the most natural-sounding voice available for the language

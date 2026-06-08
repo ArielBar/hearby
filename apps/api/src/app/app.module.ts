@@ -11,6 +11,7 @@ import { join } from 'path';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [
+        join(process.cwd(), 'apps', 'api', `.env.${process.env['NODE_ENV'] || 'development'}`),
         join(process.cwd(), 'apps', 'api', '.env'),
         join(process.cwd(), '.env'),
       ],

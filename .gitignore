@@ -114,7 +114,7 @@ yarn-error.log
 vite.config.*.timestamp*
 
 .env*
-!.env
-!apps/**/.env*
-apps/api/.env
+!.env.example
+!apps/mobile/.env.*
+apps/api/.env*
 .expo/
