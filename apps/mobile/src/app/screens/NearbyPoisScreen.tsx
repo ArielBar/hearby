@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -60,12 +66,12 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
 
 // Unified color palette
-const COLOR_DEEP_PLUM = '#453266';    // Primary Linework & Outlines
+const COLOR_DEEP_PLUM = '#453266'; // Primary Linework & Outlines
 const COLOR_ROYAL_PURPLE = '#8D65B2'; // Accent Elements (Crown / Headphones)
-const COLOR_TEAL_MINT = '#83C5BE';    // Main Body Fill (Location Pin)
-const COLOR_SOFT_LAVENDER = '#B79ED4';// Secondary Highlights / Shading
-const COLOR_PASTEL_PINK = '#E295A3';  // Accent Detail (Tongue)
-const COLOR_WHITE = '#FFFFFF';        // Background & Face Fill
+const COLOR_TEAL_MINT = '#83C5BE'; // Main Body Fill (Location Pin)
+const COLOR_SOFT_LAVENDER = '#B79ED4'; // Secondary Highlights / Shading
+const COLOR_PASTEL_PINK = '#E295A3'; // Accent Detail (Tongue)
+const COLOR_WHITE = '#FFFFFF'; // Background & Face Fill
 
 // Icon color aliases
 const ICON_COLOR = COLOR_TEAL_MINT;
@@ -81,7 +87,7 @@ const TEXT_BASE = {
 };
 
 // Backend API call
-const BASE_URL = 'http://localhost:3000/api';
+const BASE_URL = 'https://hear-by.com/api';
 
 // Localized UI strings
 const UI_STRINGS: Record<string, Record<string, string>> = {
@@ -178,12 +184,35 @@ function isRTL(lang: string): boolean {
 }
 
 const LANG_FLAGS: Record<string, string> = {
-  en: '🇬🇧', he: '🇮🇱', es: '🇪🇸', fr: '🇫🇷', de: '🇩🇪',
-  it: '🇮🇹', pt: '🇵🇹', ar: '🇸🇦', ru: '🇷🇺', ja: '🇯🇵',
-  zh: '🇨🇳', ko: '🇰🇷', nl: '🇳🇱', pl: '🇵🇱', tr: '🇹🇷',
-  th: '🇹🇭', hi: '🇮🇳', sv: '🇸🇪', da: '🇩🇰', fi: '🇫🇮',
-  no: '🇳🇴', uk: '🇺🇦', el: '🇬🇷', cs: '🇨🇿', ro: '🇷🇴',
-  hu: '🇭🇺', id: '🇮🇩', ms: '🇲🇾', vi: '🇻🇳',
+  en: '🇬🇧',
+  he: '🇮🇱',
+  es: '🇪🇸',
+  fr: '🇫🇷',
+  de: '🇩🇪',
+  it: '🇮🇹',
+  pt: '🇵🇹',
+  ar: '🇸🇦',
+  ru: '🇷🇺',
+  ja: '🇯🇵',
+  zh: '🇨🇳',
+  ko: '🇰🇷',
+  nl: '🇳🇱',
+  pl: '🇵🇱',
+  tr: '🇹🇷',
+  th: '🇹🇭',
+  hi: '🇮🇳',
+  sv: '🇸🇪',
+  da: '🇩🇰',
+  fi: '🇫🇮',
+  no: '🇳🇴',
+  uk: '🇺🇦',
+  el: '🇬🇷',
+  cs: '🇨🇿',
+  ro: '🇷🇴',
+  hu: '🇭🇺',
+  id: '🇮🇩',
+  ms: '🇲🇾',
+  vi: '🇻🇳',
 };
 
 /**
@@ -192,19 +221,20 @@ const LANG_FLAGS: Record<string, string> = {
  */
 function getDevicePreferredLanguages(): { code: string; label: string }[] {
   try {
-    const appleLanguages: string[] | undefined =
-      Settings.get('AppleLanguages') as string[] | undefined;
+    const appleLanguages: string[] | undefined = Settings.get(
+      'AppleLanguages',
+    ) as string[] | undefined;
 
     if (appleLanguages && appleLanguages.length > 0) {
       const seen = new Set<string>();
       return appleLanguages
-        .map(locale => locale.split('_')[0].split('-')[0].toLowerCase())
-        .filter(code => {
+        .map((locale) => locale.split('_')[0].split('-')[0].toLowerCase())
+        .filter((code) => {
           if (seen.has(code)) return false;
           seen.add(code);
           return true;
         })
-        .map(code => ({
+        .map((code) => ({
           code,
           label: `${LANG_FLAGS[code] || '🌐'} ${code.toUpperCase()}`,
         }));
@@ -287,9 +317,7 @@ async function fetchAutocomplete(
       lang: language,
     });
 
-    const res = await fetch(
-      `${BASE_URL}/search/nominatim?${params}`
-    );
+    const res = await fetch(`${BASE_URL}/search/nominatim?${params}`);
 
     if (!res.ok) {
       console.warn('[Autocomplete] Backend proxy request failed:', res.status);
@@ -344,13 +372,15 @@ export function NearbyPoisScreen() {
   const [showPaywall, setShowPaywall] = useState(false);
 
   // Detect device language once on mount (for Nominatim accept-language header)
-  const [deviceLanguage, setDeviceLanguage] = useState(() => getDeviceLanguage());
+  const [deviceLanguage, setDeviceLanguage] = useState(() =>
+    getDeviceLanguage(),
+  );
   const [showLangPicker, setShowLangPicker] = useState(false);
   const [preferredLanguages] = useState(() => getDevicePreferredLanguages());
 
   // Load persisted language preference on mount
   useEffect(() => {
-    AsyncStorage.getItem('hearby_lang').then(saved => {
+    AsyncStorage.getItem('hearby_lang').then((saved) => {
       if (saved) setDeviceLanguage(saved);
     });
   }, []);
@@ -373,10 +403,29 @@ export function NearbyPoisScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [recentSearches, setRecentSearches] = useState<AutocompleteResult[]>([]);
+  const [recentSearches, setRecentSearches] = useState<AutocompleteResult[]>(
+    [],
+  );
 
   // Panel collapse state
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+
+  // Track keyboard height to offset the search panel
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKeyboardHeight(e.endCoordinates.height),
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0),
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Nearby POIs state
   const [nearbyPois, setNearbyPois] = useState<NearbyPoi[]>([]);
@@ -391,9 +440,11 @@ export function NearbyPoisScreen() {
 
   // Load recent searches from storage on mount
   useEffect(() => {
-    AsyncStorage.getItem('hearby_recents').then(val => {
+    AsyncStorage.getItem('hearby_recents').then((val) => {
       if (val) {
-        try { setRecentSearches(JSON.parse(val)); } catch {}
+        try {
+          setRecentSearches(JSON.parse(val));
+        } catch {}
       }
     });
   }, []);
@@ -407,7 +458,7 @@ export function NearbyPoisScreen() {
 
   // Load premium voice preference on mount
   useEffect(() => {
-    AsyncStorage.getItem('hearby_premium_voice').then(val => {
+    AsyncStorage.getItem('hearby_premium_voice').then((val) => {
       if (val === 'true') setUsePremiumVoice(true);
     });
   }, []);
@@ -451,19 +502,16 @@ export function NearbyPoisScreen() {
         rewardedAd.load();
       },
     );
-    const errorUnsub = rewardedAd.addAdEventListener(
-      AdEventType.ERROR,
-      () => {
-        // Ad failed — fallback: play immediately
-        if (pendingPlayAfterAdRef.current) {
-          pendingPlayAfterAdRef.current = false;
-          startAudioPlayback();
-        }
-        setAdLoaded(false);
-        // Retry loading after a brief delay
-        setTimeout(() => rewardedAd.load(), 5000);
-      },
-    );
+    const errorUnsub = rewardedAd.addAdEventListener(AdEventType.ERROR, () => {
+      // Ad failed — fallback: play immediately
+      if (pendingPlayAfterAdRef.current) {
+        pendingPlayAfterAdRef.current = false;
+        startAudioPlayback();
+      }
+      setAdLoaded(false);
+      // Retry loading after a brief delay
+      setTimeout(() => rewardedAd.load(), 5000);
+    });
 
     // Initial load
     rewardedAd.load();
@@ -478,11 +526,14 @@ export function NearbyPoisScreen() {
 
   // Direction-aware layout based on selected language
   const rtl = useMemo(() => isRTL(deviceLanguage), [deviceLanguage]);
-  const dirStyles = useMemo(() => ({
-    row: { flexDirection: rtl ? 'row' : 'row-reverse' } as const,
-    textAlign: { textAlign: rtl ? 'right' : 'left' } as const,
-    writingDirection: { writingDirection: rtl ? 'rtl' : 'ltr' } as const,
-  }), [rtl]);
+  const dirStyles = useMemo(
+    () => ({
+      row: { flexDirection: rtl ? 'row' : 'row-reverse' } as const,
+      textAlign: { textAlign: rtl ? 'right' : 'left' } as const,
+      writingDirection: { writingDirection: rtl ? 'rtl' : 'ltr' } as const,
+    }),
+    [rtl],
+  );
 
   // Targeted fetch: only when coordinate is confirmed by user
   const { data: poiData, isLoading } = useQuery({
@@ -517,8 +568,8 @@ export function NearbyPoisScreen() {
         lng: selectedCoordinate.longitude,
         type: 'poi',
       };
-      setRecentSearches(prev => {
-        const filtered = prev.filter(r => r.title !== entry.title);
+      setRecentSearches((prev) => {
+        const filtered = prev.filter((r) => r.title !== entry.title);
         const updated = [entry, ...filtered].slice(0, 8);
         AsyncStorage.setItem('hearby_recents', JSON.stringify(updated));
         return updated;
@@ -598,13 +649,17 @@ export function NearbyPoisScreen() {
   // Handle search result selection with smart zoom based on type
   const handleSearchResultSelect = useCallback((result: AutocompleteResult) => {
     // Save to recent searches (max 8, no duplicates)
-    setRecentSearches(prev => {
-      const filtered = prev.filter(r => r.title !== result.title);
+    setRecentSearches((prev) => {
+      const filtered = prev.filter((r) => r.title !== result.title);
       const updated = [result, ...filtered].slice(0, 8);
       AsyncStorage.setItem('hearby_recents', JSON.stringify(updated));
       return updated;
     });
-    console.log('[NearbyPoisScreen] Search result selected:', result.title, result.type);
+    console.log(
+      '[NearbyPoisScreen] Search result selected:',
+      result.title,
+      result.type,
+    );
 
     // Exit search focus mode
     setSearchQuery('');
@@ -630,7 +685,7 @@ export function NearbyPoisScreen() {
     if (result.type === 'city') {
       // City: Wide zoom, no marker, no audio sheet
       console.log('[NearbyPoisScreen] Flying to city with wide zoom');
-      
+
       mapRef.current?.animateToRegion(
         {
           latitude: coordinate.latitude,
@@ -647,7 +702,7 @@ export function NearbyPoisScreen() {
     } else {
       // POI: Tight zoom, place marker, show confirm button
       console.log('[NearbyPoisScreen] Flying to POI with tight zoom');
-      
+
       mapRef.current?.animateToRegion(
         {
           latitude: coordinate.latitude,
@@ -770,15 +825,22 @@ export function NearbyPoisScreen() {
       <TouchableOpacity
         style={[styles.myLocationBtn, { top: insets.top + 12 }]}
         activeOpacity={0.7}
-        onPress={() => {
+        onPress={async () => {
+          // Request permission first (iOS needs explicit authorization)
+          if (Platform.OS === 'ios') {
+            Geolocation.requestAuthorization('whenInUse');
+          }
           Geolocation.getCurrentPosition(
             (position) => {
-              mapRef.current?.animateToRegion({
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                latitudeDelta: 0.005,
-                longitudeDelta: 0.005,
-              }, 500);
+              mapRef.current?.animateToRegion(
+                {
+                  latitude: position.coords.latitude,
+                  longitude: position.coords.longitude,
+                  latitudeDelta: 0.005,
+                  longitudeDelta: 0.005,
+                },
+                500,
+              );
             },
             (error) => console.warn('[Location] Error:', error.message),
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 },
@@ -793,246 +855,322 @@ export function NearbyPoisScreen() {
         style={[
           styles.searchPanel,
           { maxHeight: isPanelCollapsed ? 36 : PANEL_MAX_HEIGHT },
+          keyboardHeight > 0 && { bottom: keyboardHeight },
         ]}
       >
         {/* Drag Handle — tap to collapse/expand */}
         <TouchableOpacity
           style={styles.dragHandle}
           activeOpacity={0.7}
-          onPress={() => setIsPanelCollapsed(prev => !prev)}
+          onPress={() => setIsPanelCollapsed((prev) => !prev)}
         >
           <View style={styles.dragHandleBar} />
         </TouchableOpacity>
 
-        {!isPanelCollapsed && (<>
-        {/* Header Row: Close + Search Input */}
-        <View style={[styles.searchHeader, dirStyles.row]}>
-          <TouchableOpacity
-            style={styles.closeSearchBtn}
-            onPress={handleCancelSearch}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-           <X size={20} color={ICON_COLOR} />
-          </TouchableOpacity>
+        {!isPanelCollapsed && (
+          <>
+            {/* Header Row: Close + Search Input */}
+            <View style={[styles.searchHeader, dirStyles.row]}>
+              <TouchableOpacity
+                style={styles.closeSearchBtn}
+                onPress={handleCancelSearch}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <X size={20} color={ICON_COLOR} />
+              </TouchableOpacity>
 
-          <View style={styles.searchInputWrapper}>
-           <TextInput
-              style={[styles.searchInput, dirStyles.textAlign, dirStyles.writingDirection]}
-              placeholder={t(deviceLanguage, 'searchPlaceholder')}
-              placeholderTextColor="#B79ED4"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              onFocus={() => setIsSearchFocused(true)}
-              returnKeyType="search"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <View style={styles.searchInputIcon}>
-              <Search size={20} color={ICON_COLOR_MUTED} />
+              <View style={styles.searchInputWrapper}>
+                <TextInput
+                  style={[
+                    styles.searchInput,
+                    dirStyles.textAlign,
+                    dirStyles.writingDirection,
+                  ]}
+                  placeholder={t(deviceLanguage, 'searchPlaceholder')}
+                  placeholderTextColor="#B79ED4"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  onFocus={() => setIsSearchFocused(true)}
+                  returnKeyType="search"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <View style={styles.searchInputIcon}>
+                  <Search size={20} color={ICON_COLOR_MUTED} />
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.langBadge}
+                onPress={() => setShowLangPicker(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+              >
+                <Text style={styles.langBadgeText}>
+                  {LANG_FLAGS[deviceLanguage] || '🌐'}{' '}
+                  {deviceLanguage.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
             </View>
-          </View>
 
-          <TouchableOpacity
-            style={styles.langBadge}
-            onPress={() => setShowLangPicker(true)}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <Text style={styles.langBadgeText}>
-              {LANG_FLAGS[deviceLanguage] || '🌐'} {deviceLanguage.toUpperCase()}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          style={{ flex: 1 }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-
-        {/* State A: Default View (empty query) */}
-        {!searchQuery.trim() && (
-          <View style={styles.defaultContent}>
-            {/* Recent Searches */}
-            {recentSearches.length > 0 && (
-              <>
-                <Text style={[styles.sectionTitle, dirStyles.textAlign]}>{t(deviceLanguage, 'recents')}</Text>
-                {recentSearches.map((item, idx) => (
-                  <TouchableOpacity
-                    key={`recent-${idx}`}
-                    style={[styles.recentRow, dirStyles.row]}
-                    activeOpacity={0.7}
-                    onPress={() => handleSearchResultSelect(item)}
-                  >
-                    <View style={styles.recentIcon}>
-                      <Clock size={18} color={ICON_COLOR} />
-                    </View>
-                    <Text style={[styles.recentLabel, dirStyles.textAlign]} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    {rtl ? <ChevronLeft size={20} color={ICON_COLOR_MUTED} /> : <ChevronRight size={20} color={ICON_COLOR_MUTED} />}
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
-
-            {/* Nearby Exploration Section */}
-            <Text style={[styles.sectionTitle, dirStyles.textAlign, recentSearches.length > 0 && { marginTop: 20 }]}>
-              {t(deviceLanguage, 'nearbyExploration')}
-            </Text>
-            <TouchableOpacity
-              style={[styles.categoryRow, dirStyles.row]}
-              activeOpacity={0.7}
-              onPress={() => {
-                setIsLoadingNearby(true);
-                setNearbySearchDone(false);
-                setNearbyPois([]);
-                Geolocation.getCurrentPosition(
-                  (position) => {
-                    fetchNearbyPois(
-                      position.coords.latitude,
-                      position.coords.longitude,
-                      deviceLanguage,
-                    ).then((results) => {
-                      setNearbyPois(results);
-                      setIsLoadingNearby(false);
-                      setNearbySearchDone(true);
-                    });
-                  },
-                  (error) => {
-                    console.warn('[NearbyPoisScreen] GPS error, falling back to map center:', error.message);
-                    mapRef.current?.getCamera().then(camera => {
-                      if (camera?.center) {
-                        fetchNearbyPois(
-                          camera.center.latitude,
-                          camera.center.longitude,
-                          deviceLanguage,
-                        ).then((results) => {
-                          setNearbyPois(results);
-                          setIsLoadingNearby(false);
-                          setNearbySearchDone(true);
-                        });
-                      } else {
-                        setIsLoadingNearby(false);
-                        setNearbySearchDone(true);
-                      }
-                    });
-                  },
-                  { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 },
-                );
-              }}
+            <ScrollView
+              style={{ flex: 1 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <View style={styles.categoryIcon}>
-                <MapPin size={24} color={ICON_COLOR} />
-              </View>
-              <Text style={[styles.categoryLabel, dirStyles.textAlign]}>{t(deviceLanguage, 'landmarks')}</Text>
-              {rtl ? <ChevronLeft size={20} color={ICON_COLOR_MUTED} /> : <ChevronRight size={20} color={ICON_COLOR_MUTED} />}
-            </TouchableOpacity>
+              {/* State A: Default View (empty query) */}
+              {!searchQuery.trim() && (
+                <View style={styles.defaultContent}>
+                  {/* Recent Searches */}
+                  {recentSearches.length > 0 && (
+                    <>
+                      <Text style={[styles.sectionTitle, dirStyles.textAlign]}>
+                        {t(deviceLanguage, 'recents')}
+                      </Text>
+                      {recentSearches.map((item, idx) => (
+                        <TouchableOpacity
+                          key={`recent-${idx}`}
+                          style={[styles.recentRow, dirStyles.row]}
+                          activeOpacity={0.7}
+                          onPress={() => handleSearchResultSelect(item)}
+                        >
+                          <View style={styles.recentIcon}>
+                            <Clock size={18} color={ICON_COLOR} />
+                          </View>
+                          <Text
+                            style={[styles.recentLabel, dirStyles.textAlign]}
+                            numberOfLines={1}
+                          >
+                            {item.title}
+                          </Text>
+                          {rtl ? (
+                            <ChevronLeft size={20} color={ICON_COLOR_MUTED} />
+                          ) : (
+                            <ChevronRight size={20} color={ICON_COLOR_MUTED} />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  )}
 
-            {/* Nearby POIs results */}
-            {isLoadingNearby && (
-              <View style={[styles.loadingState, { marginTop: 12 }]}>
-                <ActivityIndicator size="small" color="#40C4C1" />
-              </View>
-            )}
-            {nearbySearchDone && !isLoadingNearby && nearbyPois.length === 0 && (
-              <Text style={[styles.noResultsText, dirStyles.textAlign]}>
-                {t(deviceLanguage, 'noPlacesFound')}
-              </Text>
-            )}
-            {nearbyPois.length > 0 && (
-              <View style={{ marginTop: 12 }}>
-                {nearbyPois.map((item, index) => (
+                  {/* Nearby Exploration Section */}
+                  <Text
+                    style={[
+                      styles.sectionTitle,
+                      dirStyles.textAlign,
+                      recentSearches.length > 0 && { marginTop: 20 },
+                    ]}
+                  >
+                    {t(deviceLanguage, 'nearbyExploration')}
+                  </Text>
                   <TouchableOpacity
-                    key={`nearby-${item.title}-${index}`}
-                    style={styles.resultCard}
+                    style={[styles.categoryRow, dirStyles.row]}
                     activeOpacity={0.7}
                     onPress={() => {
-                      const coord: Coordinate = { latitude: item.lat, longitude: item.lng };
-                      setTempMarkerCoords(coord);
-                      setSelectedCoordinate(coord);
-                      setNearbyPois([]);
+                      setIsLoadingNearby(true);
                       setNearbySearchDone(false);
+                      setNearbyPois([]);
+                      Geolocation.getCurrentPosition(
+                        (position) => {
+                          fetchNearbyPois(
+                            position.coords.latitude,
+                            position.coords.longitude,
+                            deviceLanguage,
+                          ).then((results) => {
+                            setNearbyPois(results);
+                            setIsLoadingNearby(false);
+                            setNearbySearchDone(true);
+                          });
+                        },
+                        (error) => {
+                          console.warn(
+                            '[NearbyPoisScreen] GPS error, falling back to map center:',
+                            error.message,
+                          );
+                          mapRef.current?.getCamera().then((camera) => {
+                            if (camera?.center) {
+                              fetchNearbyPois(
+                                camera.center.latitude,
+                                camera.center.longitude,
+                                deviceLanguage,
+                              ).then((results) => {
+                                setNearbyPois(results);
+                                setIsLoadingNearby(false);
+                                setNearbySearchDone(true);
+                              });
+                            } else {
+                              setIsLoadingNearby(false);
+                              setNearbySearchDone(true);
+                            }
+                          });
+                        },
+                        {
+                          enableHighAccuracy: true,
+                          timeout: 5000,
+                          maximumAge: 10000,
+                        },
+                      );
                     }}
                   >
                     <View style={styles.categoryIcon}>
                       <MapPin size={24} color={ICON_COLOR} />
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.resultTitle, dirStyles.textAlign]}>{item.title}</Text>
-                      {item.description ? (
-                        <Text style={[styles.resultSubtitle, dirStyles.textAlign]} numberOfLines={1}>
-                          {item.description}
-                        </Text>
-                      ) : null}
-                    </View>
+                    <Text style={[styles.categoryLabel, dirStyles.textAlign]}>
+                      {t(deviceLanguage, 'landmarks')}
+                    </Text>
+                    {rtl ? (
+                      <ChevronLeft size={20} color={ICON_COLOR_MUTED} />
+                    ) : (
+                      <ChevronRight size={20} color={ICON_COLOR_MUTED} />
+                    )}
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
 
-        {/* State B: Results View (typing/results exist) */}
-        {searchQuery.trim().length >= 2 && (
-          <View style={styles.resultsContent}>
-            {isSearching ? (
-              <View style={styles.loadingState}>
-                <ActivityIndicator size="small" color="#40C4C1" />
-              </View>
-            ) : searchResults.length > 0 ? (
-              <FlatList
-                data={searchResults}
-                keyExtractor={(item, index) => `${item.title}-${index}`}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                renderItem={({ item, index }) => {
-                  const isTopMatch = index === 0 && item.type === 'city';
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.resultCard,
-                        isTopMatch && styles.resultCardTop,
-                      ]}
-                      onPress={() => handleSearchResultSelect(item)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.resultRow, dirStyles.row]}>
-                        <View style={[
-                          styles.resultIconCircle,
-                          isTopMatch ? styles.resultIconGlobe : styles.resultIconStar,
-                        ]}>
-                          {item.type === 'city' ? <Globe size={24} color={ICON_COLOR} /> : <MapPin size={24} color={ICON_COLOR} />}
-                        </View>
-                        <View style={styles.resultTextBlock}>
-                          <Text style={[styles.resultTitle, dirStyles.textAlign]} numberOfLines={1}>
-                            {item.title}
-                          </Text>
-                          {item.description ? (
-                            <Text style={[styles.resultSubtitle, dirStyles.textAlign]} numberOfLines={1}>
-                              {item.description}
+                  {/* Nearby POIs results */}
+                  {isLoadingNearby && (
+                    <View style={[styles.loadingState, { marginTop: 12 }]}>
+                      <ActivityIndicator size="small" color="#40C4C1" />
+                    </View>
+                  )}
+                  {nearbySearchDone &&
+                    !isLoadingNearby &&
+                    nearbyPois.length === 0 && (
+                      <Text style={[styles.noResultsText, dirStyles.textAlign]}>
+                        {t(deviceLanguage, 'noPlacesFound')}
+                      </Text>
+                    )}
+                  {nearbyPois.length > 0 && (
+                    <View style={{ marginTop: 12 }}>
+                      {nearbyPois.map((item, index) => (
+                        <TouchableOpacity
+                          key={`nearby-${item.title}-${index}`}
+                          style={styles.resultCard}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            const coord: Coordinate = {
+                              latitude: item.lat,
+                              longitude: item.lng,
+                            };
+                            setTempMarkerCoords(coord);
+                            setSelectedCoordinate(coord);
+                            setNearbyPois([]);
+                            setNearbySearchDone(false);
+                          }}
+                        >
+                          <View style={styles.categoryIcon}>
+                            <MapPin size={24} color={ICON_COLOR} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[styles.resultTitle, dirStyles.textAlign]}
+                            >
+                              {item.title}
                             </Text>
-                          ) : null}
-                        </View>
-                      </View>
-                      {isTopMatch && (
-                        <View style={styles.guidesBtn}>
-                          <Text style={styles.guidesBtnText}>{t(deviceLanguage, 'guides')}</Text>
-                        </View>
+                            {item.description ? (
+                              <Text
+                                style={[
+                                  styles.resultSubtitle,
+                                  dirStyles.textAlign,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {item.description}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* State B: Results View (typing/results exist) */}
+              {searchQuery.trim().length >= 2 && (
+                <View style={styles.resultsContent}>
+                  {isSearching ? (
+                    <View style={styles.loadingState}>
+                      <ActivityIndicator size="small" color="#40C4C1" />
+                    </View>
+                  ) : searchResults.length > 0 ? (
+                    <FlatList
+                      data={searchResults}
+                      keyExtractor={(item, index) => `${item.title}-${index}`}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      renderItem={({ item, index }) => {
+                        const isTopMatch = index === 0 && item.type === 'city';
+                        return (
+                          <TouchableOpacity
+                            style={[
+                              styles.resultCard,
+                              isTopMatch && styles.resultCardTop,
+                            ]}
+                            onPress={() => handleSearchResultSelect(item)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={[styles.resultRow, dirStyles.row]}>
+                              <View
+                                style={[
+                                  styles.resultIconCircle,
+                                  isTopMatch
+                                    ? styles.resultIconGlobe
+                                    : styles.resultIconStar,
+                                ]}
+                              >
+                                {item.type === 'city' ? (
+                                  <Globe size={24} color={ICON_COLOR} />
+                                ) : (
+                                  <MapPin size={24} color={ICON_COLOR} />
+                                )}
+                              </View>
+                              <View style={styles.resultTextBlock}>
+                                <Text
+                                  style={[
+                                    styles.resultTitle,
+                                    dirStyles.textAlign,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {item.title}
+                                </Text>
+                                {item.description ? (
+                                  <Text
+                                    style={[
+                                      styles.resultSubtitle,
+                                      dirStyles.textAlign,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {item.description}
+                                  </Text>
+                                ) : null}
+                              </View>
+                            </View>
+                            {isTopMatch && (
+                              <View style={styles.guidesBtn}>
+                                <Text style={styles.guidesBtnText}>
+                                  {t(deviceLanguage, 'guides')}
+                                </Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      }}
+                      ItemSeparatorComponent={() => (
+                        <View style={styles.resultDivider} />
                       )}
-                    </TouchableOpacity>
-                  );
-                }}
-                ItemSeparatorComponent={() => <View style={styles.resultDivider} />}
-              />
-            ) : (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>{t(deviceLanguage, 'noResults')}</Text>
-              </View>
-            )}
-          </View>
+                    />
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyText}>
+                        {t(deviceLanguage, 'noResults')}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+          </>
         )}
-        </ScrollView>
-        </>)}
       </Animated.View>
 
       {/* Confirm POI Button - shown when marker placed but not yet confirmed */}
@@ -1043,7 +1181,9 @@ export function NearbyPoisScreen() {
           activeOpacity={0.7}
         >
           <MapPin size={20} color="#FFFFFF" />
-          <Text style={styles.confirmPoiText}>{t(deviceLanguage, 'explorePoi')}</Text>
+          <Text style={styles.confirmPoiText}>
+            {t(deviceLanguage, 'explorePoi')}
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -1055,7 +1195,12 @@ export function NearbyPoisScreen() {
         onRequestClose={handleClose}
       >
         <View style={styles.poiModalOverlay}>
-          <View style={[styles.poiModalContent, { paddingBottom: insets.bottom + 20 }]}>
+          <View
+            style={[
+              styles.poiModalContent,
+              { paddingBottom: insets.bottom + 20 },
+            ]}
+          >
             {/* Close button */}
             <TouchableOpacity
               style={styles.closeBtn}
@@ -1076,7 +1221,9 @@ export function NearbyPoisScreen() {
             {isLoading && (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="#40C4C1" />
-                <Text style={styles.loadingText}>{t(deviceLanguage, 'loading')}</Text>
+                <Text style={styles.loadingText}>
+                  {t(deviceLanguage, 'loading')}
+                </Text>
               </View>
             )}
 
@@ -1091,10 +1238,16 @@ export function NearbyPoisScreen() {
                   onPress={handlePlayPause}
                   activeOpacity={0.7}
                 >
-                  {isPlaying && !isPaused ? <Pause size={28} color={ICON_COLOR} /> : <Play size={28} color={ICON_COLOR} />}
+                  {isPlaying && !isPaused ? (
+                    <Pause size={28} color={ICON_COLOR} />
+                  ) : (
+                    <Play size={28} color={ICON_COLOR} />
+                  )}
                 </TouchableOpacity>
                 <Text style={[styles.audioLabel, dirStyles.textAlign]}>
-                  {isPlaying && !isPaused ? t(deviceLanguage, 'nowPlaying') : t(deviceLanguage, 'playAudio')}
+                  {isPlaying && !isPaused
+                    ? t(deviceLanguage, 'nowPlaying')
+                    : t(deviceLanguage, 'playAudio')}
                 </Text>
               </View>
             )}
@@ -1103,7 +1256,9 @@ export function NearbyPoisScreen() {
             {!isLoading && !poiData?.masterScript && !isLoading && (
               <View style={styles.noAudioContainer}>
                 <VolumeX size={28} color={ICON_COLOR_MUTED} />
-                <Text style={styles.noAudioText}>{t(deviceLanguage, 'noAudio')}</Text>
+                <Text style={styles.noAudioText}>
+                  {t(deviceLanguage, 'noAudio')}
+                </Text>
               </View>
             )}
           </View>
@@ -1123,7 +1278,7 @@ export function NearbyPoisScreen() {
         >
           <View style={styles.langModalContent}>
             <Text style={styles.langModalTitle}>Select Language</Text>
-            {preferredLanguages.map(lang => (
+            {preferredLanguages.map((lang) => (
               <TouchableOpacity
                 key={lang.code}
                 style={[
@@ -1132,10 +1287,13 @@ export function NearbyPoisScreen() {
                 ]}
                 onPress={() => handleLanguageChange(lang.code)}
               >
-                <Text style={[
-                  styles.langOptionText,
-                  lang.code === deviceLanguage && styles.langOptionTextSelected,
-                ]}>
+                <Text
+                  style={[
+                    styles.langOptionText,
+                    lang.code === deviceLanguage &&
+                      styles.langOptionTextSelected,
+                  ]}
+                >
                   {lang.label}
                 </Text>
               </TouchableOpacity>
@@ -1151,18 +1309,24 @@ export function NearbyPoisScreen() {
                 <Mic size={16} color={ICON_COLOR} />
                 <Text style={styles.premiumVoiceLabel}>Premium AI Voice</Text>
               </View>
-              <View style={[
-                styles.premiumVoiceToggle,
-                usePremiumVoice && styles.premiumVoiceToggleOn,
-              ]}>
-                <View style={[
-                  styles.premiumVoiceThumb,
-                  usePremiumVoice && styles.premiumVoiceThumbOn,
-                ]} />
+              <View
+                style={[
+                  styles.premiumVoiceToggle,
+                  usePremiumVoice && styles.premiumVoiceToggleOn,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.premiumVoiceThumb,
+                    usePremiumVoice && styles.premiumVoiceThumbOn,
+                  ]}
+                />
               </View>
             </TouchableOpacity>
             <Text style={styles.premiumVoiceHint}>
-              {usePremiumVoice ? 'OpenAI TTS (costs apply)' : 'On-device Siri voice (free)'}
+              {usePremiumVoice
+                ? 'OpenAI TTS (costs apply)'
+                : 'On-device Siri voice (free)'}
             </Text>
 
             {/* Upgrade to Premium CTA */}
@@ -1178,7 +1342,10 @@ export function NearbyPoisScreen() {
                     source={require('../assets/premium-icon.png')}
                     style={styles.upgradePremiumIcon}
                   />
-                  <Text style={styles.upgradePremiumBtnText}> שדרג ל-Premium</Text>
+                  <Text style={styles.upgradePremiumBtnText}>
+                    {' '}
+                    שדרג ל-Premium
+                  </Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1187,7 +1354,10 @@ export function NearbyPoisScreen() {
       </Modal>
 
       {/* Paywall Modal */}
-      <PaywallModal visible={showPaywall} onClose={() => setShowPaywall(false)} />
+      <PaywallModal
+        visible={showPaywall}
+        onClose={() => setShowPaywall(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1433,10 +1603,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 12,
   },
-  resultIconGlobe: {
-  },
-  resultIconStar: {
-  },
+  resultIconGlobe: {},
+  resultIconStar: {},
   resultTextBlock: {
     flex: 1,
     alignItems: 'flex-end',

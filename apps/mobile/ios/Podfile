@@ -42,5 +42,12 @@ target 'Mobile' do
       )
       File.write(fmt_base, patched) if patched != content
     end
+
+    # Fix non-modular-include-in-framework-module errors (Xcode 26 / iOS 26.5 SDK)
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      end
+    end
   end
 end

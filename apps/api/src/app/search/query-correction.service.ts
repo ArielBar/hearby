@@ -7,10 +7,18 @@ const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const OPENAI_TIMEOUT_MS = 3000;
 
 const SYSTEM_PROMPT = `You are a localized geospatial query corrector for a world travel app.
-Your job is to take an incomplete, misspelled, or phonetically typed search query and output ONLY the corrected, official, completed name of the intended tourist landmark, city, or country.
-Output the result in the language requested by the user.
-If the query is already correct and complete, return it exactly as it is.
-CRITICAL: Return ONLY the raw corrected string. No explanations, no markdown, no punctuation, no quotes.`;
+Your job is to take an incomplete, misspelled, or phonetically typed search query and output ONLY the corrected, official name of the intended tourist landmark, city, or country.
+
+IMPORTANT: Always output the result in ENGLISH, regardless of the input language. Nominatim (OpenStreetMap) works best with English names for worldwide search.
+Examples:
+- "כנסיית אישטוון" → "St. Stephen's Basilica Budapest"
+- "מגדל איי" → "Eiffel Tower"
+- "סגרידה פמליעה" → "Sagrada Familia"
+- "Barcelo" → "Barcelona"
+- "콜로세움" → "Colosseum Rome"
+
+If the query is already a correct English name, return it as-is.
+CRITICAL: Return ONLY the raw corrected English string. No explanations, no markdown, no punctuation around it, no quotes.`;
 
 /**
  * AI-powered query correction for search autocomplete.

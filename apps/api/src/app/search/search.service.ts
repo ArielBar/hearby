@@ -184,11 +184,11 @@ export class SearchService {
           osmClass === 'boundary' ||
           cityTypes.some((type) => osmType.includes(type));
 
-        // Prefer English name for better display
-        // Check namedetails for name:en, fallback to name
+        // Prefer localized name in user's language, fallback to English, then default
         const nameDetails = item.namedetails || {};
-        const englishName = nameDetails['name:en'] || nameDetails['int_name'] || nameDetails['name'];
-        const title = englishName || item.name || item.display_name.split(',')[0];
+        const localizedName = nameDetails[`name:${lang}`];
+        const englishName = nameDetails['name:en'] || nameDetails['int_name'];
+        const title = localizedName || englishName || nameDetails['name'] || item.name || item.display_name.split(',')[0];
 
         // Generate description
         const descriptionParts = item.display_name.split(',').slice(1, 3);

@@ -117,3 +117,4 @@ vite.config.*.timestamp*
 !.env
 !apps/**/.env*
 apps/api/.env
+.expo/
