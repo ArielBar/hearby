@@ -49,17 +49,14 @@ export class OpenAIService {
   /**
    * Generate a captivating audio guide script for a tourist landmark
    *
-   * Strategy:
-   * 1. Check cache for existing script (7-day TTL)
-   * 2. If not cached, generate new script using OpenAI
-   * 3. Cache the result for 7 days
-   *
    * @param landmarkName - Official name of the tourist landmark
-   * @returns Audio script in English or null if generation fails
+   * @param lang - Target language code (default: 'en'). When non-English, generates directly in that language.
+   * @returns Audio script or null if generation fails
    */
-  async generateAudioScript(landmarkName: string): Promise<AudioScript | null> {
+  async generateAudioScript(landmarkName: string, lang = 'en'): Promise<AudioScript | null> {
     try {
-      this.logger.log(`Generating audio script for: "${landmarkName}"`);
+      const langName = lang !== 'en' ? this.getLanguageName(lang) : null;
+      this.logger.log(`Generating audio script for: "${landmarkName}"${langName ? ` (${langName})` : ''}`);
 
       // Check if API key is configured
       const apiKey = this.configService.get<string>('OPENAI_API_KEY');
@@ -70,21 +67,25 @@ export class OpenAIService {
         return null;
       }
 
+      const languageInstruction = langName
+        ? `\n\nIMPORTANT: Write the entire script in ${langName}. The NAME should be the commonly known name in ${langName}. Address the audience in PLURAL form (e.g., Hebrew: "אתם" not "אתה").`
+        : '';
+
       // Generate script using OpenAI
       const completion = await this.openai.chat.completions.create({
         model: this.model,
         messages: [
           {
             role: 'system',
-            content: this.getSystemPrompt(),
+            content: this.getSystemPrompt() + languageInstruction,
           },
           {
             role: 'user',
-            content: `Generate a captivating audio guide script for: ${landmarkName}\n\nRespond in this exact format:\nNAME: <official English name of this landmark>\nSCRIPT:\n<your script here>`,
+            content: `Generate a captivating audio guide script for: ${landmarkName}\n\nRespond in this exact format:\nNAME: <official${langName ? ` ${langName}` : ' English'} name of this landmark>\nSCRIPT:\n<your script here>`,
           },
         ],
         temperature: 0.7,
-        max_tokens: 600,
+        max_tokens: 800,
         presence_penalty: 0.3,
         frequency_penalty: 0.3,
       });
@@ -101,26 +102,26 @@ export class OpenAIService {
       // Parse NAME and SCRIPT from response
       const nameMatch = rawResponse.match(/^NAME:\s*(.+)/m);
       const scriptMatch = rawResponse.match(/SCRIPT:\s*([\s\S]+)/);
-      const englishName = nameMatch?.[1]?.trim() || landmarkName;
+      const name = nameMatch?.[1]?.trim() || landmarkName;
       const generatedScript = scriptMatch?.[1]?.trim() || rawResponse;
 
-      // Validate script length (should be ~250-300 words for 2-minute audio)
+      // Validate script length
       const wordCount = generatedScript.split(/\s+/).length;
       this.logger.debug(`Generated script: ${wordCount} words`);
 
-      if (wordCount < 100) {
+      if (wordCount < 50) {
         this.logger.warn(
           `Script too short (${wordCount} words) for "${landmarkName}"`,
         );
       }
 
       const result: AudioScript = {
-        name: englishName,
+        name,
         masterScript: generatedScript,
       };
 
       this.logger.log(
-        `Successfully generated script for "${englishName}"`,
+        `Successfully generated script for "${name}"${langName ? ` (${langName})` : ''}`,
       );
 
       return result;

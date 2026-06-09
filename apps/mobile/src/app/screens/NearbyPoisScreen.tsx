@@ -693,14 +693,14 @@ export function NearbyPoisScreen() {
           latitudeDelta: 0.12, // Wide view for cities
           longitudeDelta: 0.12,
         },
-        1500,
+        1000,
       );
 
       // Clear any existing marker/selection (don't trigger POI fetch)
       setTempMarkerCoords(null);
       setSelectedCoordinate(null);
     } else {
-      // POI: Tight zoom, place marker, show confirm button
+      // POI: Tight zoom, place marker, trigger enrichment immediately
       console.log('[NearbyPoisScreen] Flying to POI with tight zoom');
 
       mapRef.current?.animateToRegion(
@@ -710,7 +710,7 @@ export function NearbyPoisScreen() {
           latitudeDelta: 0.008, // Immersive zoom for landmarks
           longitudeDelta: 0.008,
         },
-        1500,
+        800,
       );
 
       // Set marker only — user must confirm to trigger enrichment
