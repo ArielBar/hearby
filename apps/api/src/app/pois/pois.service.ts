@@ -17,7 +17,7 @@ const DATA_PREFIX = 'poi:data:';
 const AUDIO_PREFIX = 'audio:';
 const AUDIO_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const DEFAULT_LANG = 'en';
-const SEARCH_RADIUS_M = 100; // Match within 100 meters
+const SEARCH_RADIUS_M = 50; // Match within 50 meters
 
 /**
  * POI Service - Geospatial cache with AI enrichment
@@ -127,25 +127,25 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Store enriched POI in Redis with geospatial index (never expires)
+   * Geo member is always the English name. Data is keyed by english name + language.
    */
   private async storePoi(
     lat: number,
     lng: number,
+    englishName: string,
     result: EnrichResult,
     lang: string = DEFAULT_LANG,
   ): Promise<void> {
     try {
-      const memberKey = result.name; // Always English name
-
-      // Store coordinates in geo set (for spatial queries)
+      // Geo member is always the English name
       await this.redis.geoAdd(GEO_KEY, {
         longitude: lng,
         latitude: lat,
-        member: memberKey,
+        member: englishName,
       });
 
-      // Store enrichment data keyed by language (never expires)
-      const dataKey = `${DATA_PREFIX}${memberKey}:${lang}`;
+      // Store enrichment data keyed by English name + language
+      const dataKey = `${DATA_PREFIX}${englishName}:${lang}`;
       await this.redis.set(dataKey, JSON.stringify(result));
 
       this.logger.log(`Stored POI "${dataKey}" at [${lat}, ${lng}]`);
@@ -176,10 +176,11 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
           return cacheHit.result;
         }
         // English exists, translate it
-        this.logger.log(`Translating "${cacheHit.result.name}" from en → ${lang}`);
+        const englishName = cacheHit.result.name;
+        this.logger.log(`Translating "${englishName}" from en → ${lang}`);
         const translation = await this.openaiService.translateScript(
           cacheHit.result.masterScript,
-          cacheHit.result.name,
+          englishName,
           lang,
         );
         if (translation) {
@@ -187,7 +188,7 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
             name: translation.translatedName,
             masterScript: translation.translatedScript,
           };
-          this.storePoi(lat, lng, result, lang);
+          this.storePoi(lat, lng, englishName, result, lang);
           return result;
         }
         return cacheHit.result;
@@ -203,7 +204,7 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Geo cache miss — enriching POI at [${lat}, ${lng}] (${lang})`);
 
     try {
-      // Step 3: Reverse geocode to get POI name (Mapbox)
+      // Step 2: Reverse geocode to get POI name (Mapbox — always English)
       const poi = await this.searchService.reverseGeocode(lat, lng);
 
       if (!poi) {
@@ -211,24 +212,23 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
-      this.logger.log(`✓ Identified POI: "${poi.name}" at [${lat}, ${lng}]`);
+      const englishName = poi.name; // Canonical English name from geocoder
+      this.logger.log(`✓ Identified POI: "${englishName}" at [${lat}, ${lng}]`);
 
-      // Step 4: Generate scripts — English + translation in parallel if needed
+      // Step 3: Generate scripts — English + target language in parallel if needed
       if (lang !== DEFAULT_LANG) {
-        // Generate English and translate in parallel
         const [audioScript, directTranslation] = await Promise.all([
-          this.openaiService.generateAudioScript(poi.name),
-          this.openaiService.generateAudioScript(poi.name, lang),
+          this.openaiService.generateAudioScript(englishName),
+          this.openaiService.generateAudioScript(englishName, lang),
         ]);
 
-        // Store English base if generated
+        // Store English base if generated (fire-and-forget)
         if (audioScript) {
           const englishResult: EnrichResult = {
             name: audioScript.name,
             masterScript: audioScript.masterScript,
           };
-          // Fire-and-forget: don't await cache store
-          this.storePoi(lat, lng, englishResult, DEFAULT_LANG);
+          this.storePoi(lat, lng, englishName, englishResult, DEFAULT_LANG);
         }
 
         // Return the direct translation if available
@@ -237,8 +237,8 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
             name: directTranslation.name,
             masterScript: directTranslation.masterScript,
           };
-          this.storePoi(lat, lng, translatedResult, lang);
-          this.logger.log(`✓ Enriched POI "${poi.name}:${lang}" at [${lat}, ${lng}] (parallel)`);
+          this.storePoi(lat, lng, englishName, translatedResult, lang);
+          this.logger.log(`✓ Enriched POI "${englishName}:${lang}" at [${lat}, ${lng}]`);
           return translatedResult;
         }
 
@@ -254,7 +254,7 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
               name: translation.translatedName,
               masterScript: translation.translatedScript,
             };
-            this.storePoi(lat, lng, result, lang);
+            this.storePoi(lat, lng, englishName, result, lang);
             return result;
           }
           return { name: audioScript.name, masterScript: audioScript.masterScript };
@@ -264,11 +264,11 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
       }
 
       // English-only path
-      const audioScript = await this.openaiService.generateAudioScript(poi.name);
+      const audioScript = await this.openaiService.generateAudioScript(englishName);
 
       if (!audioScript) {
         this.logger.warn(
-          `Failed to generate audio script for "${poi.name}" at [${lat}, ${lng}]`,
+          `Failed to generate audio script for "${englishName}" at [${lat}, ${lng}]`,
         );
         return null;
       }
@@ -277,9 +277,9 @@ export class PoisService implements OnModuleInit, OnModuleDestroy {
         name: audioScript.name,
         masterScript: audioScript.masterScript,
       };
-      await this.storePoi(lat, lng, englishResult, DEFAULT_LANG);
+      await this.storePoi(lat, lng, englishName, englishResult, DEFAULT_LANG);
 
-      this.logger.log(`✓ Enriched and cached POI "${audioScript.name}:en" at [${lat}, ${lng}]`);
+      this.logger.log(`✓ Enriched and cached POI "${englishName}:en" at [${lat}, ${lng}]`);
       return englishResult;
     } catch (error) {
       this.logger.error(
