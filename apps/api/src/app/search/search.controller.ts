@@ -1,15 +1,20 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { SearchService } from './search.service';
+import { ApiKeyGuard } from '../common';
 
 @Controller('search')
+@UseGuards(ApiKeyGuard)
 export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 
   /**
    * Proxy endpoint for Nominatim search to bypass iOS ATS restrictions
    * Supports multilingual search - queries can be in any language
+   * Rate limited: 15 requests/minute per IP
    */
   @Get('nominatim')
+  @Throttle({ default: { ttl: 60000, limit: 15 } })
   async nominatimSearch(
     @Query('query') query: string,
     @Query('lang') lang?: string,

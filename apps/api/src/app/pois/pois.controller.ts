@@ -1,13 +1,17 @@
-import { Controller, Get, Query, Res, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { PoisService, EnrichResult } from './pois.service';
+import { ApiKeyGuard } from '../common';
 
 @Controller('pois')
+@UseGuards(ApiKeyGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class PoisController {
   constructor(private readonly poisService: PoisService) {}
 
   @Get('enrich')
+  @Throttle({ default: { ttl: 60000, limit: 15 } })
   async enrichPoiByCoordinates(
     @Query('lat') lat: string,
     @Query('lng') lng: string,

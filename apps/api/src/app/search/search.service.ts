@@ -2,10 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import OpenAI from 'openai';
+import * as Sentry from '@sentry/nestjs';
 import { QueryCorrectionService } from './query-correction.service';
 
 const MAPBOX_FORWARD_URL = 'https://api.mapbox.com/search/searchbox/v1/forward';
 const MAPBOX_REVERSE_URL = 'https://api.mapbox.com/search/searchbox/v1/reverse';
+const MAPBOX_COST_PER_REQUEST = 0.00075;
 
 @Injectable()
 export class SearchService {
@@ -128,8 +130,11 @@ export class SearchService {
 
       const features = response.data?.features;
       if (!Array.isArray(features) || features.length === 0) {
+        this.trackMapboxCost('forward', finalQuery);
         return [];
       }
+
+      this.trackMapboxCost('forward', finalQuery);
 
       const cityTypes = ['place', 'locality', 'region', 'district', 'country', 'neighborhood'];
 
@@ -198,9 +203,12 @@ export class SearchService {
 
       const features = response.data?.features;
       if (!Array.isArray(features) || features.length === 0) {
+        this.trackMapboxCost('reverse', `${lat},${lng}`);
         this.logger.debug(`No features found at [${lat}, ${lng}]`);
         return null;
       }
+
+      this.trackMapboxCost('reverse', `${lat},${lng}`);
 
       // Prefer POI features over addresses/places
       const poiFeature = features.find(
@@ -260,5 +268,32 @@ export class SearchService {
       th: 'Thai', hi: 'Hindi',
     };
     return map[code] || code;
+  }
+
+  /**
+   * Track Mapbox API cost in Sentry for dashboard visibility.
+   * Each Mapbox Search API request costs $0.00075.
+   */
+  private trackMapboxCost(operation: 'forward' | 'reverse', query: string): void {
+    Sentry.metrics.count('mapbox.requests', 1, {
+      attributes: { operation },
+    });
+
+    Sentry.metrics.distribution('mapbox.cost_usd', MAPBOX_COST_PER_REQUEST, {
+      unit: 'dollar',
+      attributes: { operation },
+    });
+
+    // Add breadcrumb to current transaction for traceability
+    Sentry.addBreadcrumb({
+      category: 'mapbox',
+      message: `Mapbox ${operation} geocode: "${query}"`,
+      level: 'info',
+      data: {
+        operation,
+        cost_usd: MAPBOX_COST_PER_REQUEST,
+        query,
+      },
+    });
   }
 }

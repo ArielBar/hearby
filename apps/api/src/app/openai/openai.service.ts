@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import * as Sentry from '@sentry/nestjs';
 
 export interface TranslationResult {
   translatedName: string;
@@ -11,6 +12,23 @@ export interface AudioScript {
   name: string;
   masterScript: string;
 }
+
+/**
+ * OpenAI model pricing per 1M tokens (USD).
+ * Update when switching models or when pricing changes.
+ */
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'gpt-4o': { input: 2.50, output: 10.00 },
+  'gpt-4-turbo': { input: 10.00, output: 30.00 },
+  'gpt-3.5-turbo': { input: 0.50, output: 1.50 },
+};
+
+/** TTS pricing per 1M characters */
+const TTS_PRICING: Record<string, number> = {
+  'tts-1': 15.00,
+  'tts-1-hd': 30.00,
+};
 
 /**
  * Tourist Fact Selection Engine — System Prompt
@@ -138,6 +156,7 @@ export class OpenAIService {
       });
 
       const rawResponse = completion.choices[0]?.message?.content?.trim();
+      this.trackOpenAICost(completion.usage ?? undefined, this.model, 'storytelling', landmarkName);
 
       if (!rawResponse) {
         this.logger.error(`OpenAI returned empty response for "${landmarkName}"`);
@@ -201,6 +220,7 @@ export class OpenAIService {
         max_tokens: 400,
       });
 
+      this.trackOpenAICost(completion.usage ?? undefined, this.model, 'fact_selection', landmarkName);
       return completion.choices[0]?.message?.content?.trim() || null;
     } catch (error) {
       this.logger.error(
@@ -259,6 +279,7 @@ SCRIPT:
       });
 
       const raw = completion.choices[0]?.message?.content?.trim();
+      this.trackOpenAICost(completion.usage ?? undefined, this.model, 'translation', poiName);
 
       if (!raw) {
         this.logger.warn(
@@ -309,6 +330,7 @@ SCRIPT:
         response_format: 'mp3',
       });
 
+      this.trackTtsCost(text.length, 'tts-1-hd');
       const arrayBuffer = await response.arrayBuffer();
       return Buffer.from(arrayBuffer);
     } catch (error) {
@@ -488,5 +510,94 @@ The first sentence must paint a picture the listener can experience from their e
       hi: 'Hindi',
     };
     return languages[code] || code;
+  }
+
+  /**
+   * Track OpenAI API cost in Sentry based on usage tokens from the response.
+   * Calculates exact cost using model-specific pricing per 1M tokens.
+   */
+  private trackOpenAICost(
+    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined,
+    model: string,
+    operation: 'fact_selection' | 'storytelling' | 'translation' | 'tts',
+    context?: string,
+  ): void {
+    if (!usage) return;
+
+    const pricing = MODEL_PRICING[model];
+    if (!pricing) {
+      this.logger.warn(`No pricing data for model "${model}"`);
+      return;
+    }
+
+    const inputCost = (usage.prompt_tokens / 1_000_000) * pricing.input;
+    const outputCost = (usage.completion_tokens / 1_000_000) * pricing.output;
+    const totalCost = inputCost + outputCost;
+
+    // Sentry metrics
+    Sentry.metrics.distribution('openai.cost_usd', totalCost, {
+      unit: 'dollar',
+      attributes: { model, operation },
+    });
+
+    Sentry.metrics.count('openai.requests', 1, {
+      attributes: { model, operation },
+    });
+
+    Sentry.metrics.distribution('openai.tokens.input', usage.prompt_tokens, {
+      attributes: { model, operation },
+    });
+
+    Sentry.metrics.distribution('openai.tokens.output', usage.completion_tokens, {
+      attributes: { model, operation },
+    });
+
+    // Breadcrumb for transaction tracing
+    Sentry.addBreadcrumb({
+      category: 'openai',
+      message: `OpenAI ${operation}: ${usage.total_tokens} tokens, $${totalCost.toFixed(6)}`,
+      level: 'info',
+      data: {
+        model,
+        operation,
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        total_tokens: usage.total_tokens,
+        cost_usd: totalCost,
+        cost_input_usd: inputCost,
+        cost_output_usd: outputCost,
+        context,
+      },
+    });
+
+    this.logger.debug(
+      `[Cost] ${operation} | ${model} | ${usage.prompt_tokens}+${usage.completion_tokens} tokens | $${totalCost.toFixed(6)}`,
+    );
+  }
+
+  /**
+   * Track TTS cost based on character count.
+   */
+  private trackTtsCost(charCount: number, model: string): void {
+    const pricePerMillion = TTS_PRICING[model] || TTS_PRICING['tts-1-hd'];
+    const cost = (charCount / 1_000_000) * pricePerMillion;
+
+    Sentry.metrics.distribution('openai.cost_usd', cost, {
+      unit: 'dollar',
+      attributes: { model, operation: 'tts' },
+    });
+
+    Sentry.metrics.count('openai.requests', 1, {
+      attributes: { model, operation: 'tts' },
+    });
+
+    Sentry.addBreadcrumb({
+      category: 'openai',
+      message: `OpenAI TTS: ${charCount} chars, $${cost.toFixed(6)}`,
+      level: 'info',
+      data: { model, operation: 'tts', characters: charCount, cost_usd: cost },
+    });
+
+    this.logger.debug(`[Cost] tts | ${model} | ${charCount} chars | $${cost.toFixed(6)}`);
   }
 }

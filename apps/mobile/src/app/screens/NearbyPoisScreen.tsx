@@ -87,7 +87,13 @@ const TEXT_BASE = {
 
 // Backend API URL (switches between local dev and production automatically)
 import { ENV } from '../config/env';
+import { getSignedHeaders } from '../config/apiAuth';
 const BASE_URL = ENV.API_URL;
+
+/** Generate authenticated headers for a given API path */
+function apiHeaders(path: string): Record<string, string> {
+  return getSignedHeaders(path);
+}
 
 // Localized UI strings
 const UI_STRINGS: Record<string, Record<string, string>> = {
@@ -288,7 +294,9 @@ async function fetchPoiEnrichment(
     lng: coordinate.longitude.toString(),
     lang,
   });
-  const res = await fetch(`${BASE_URL}/pois/enrich?${params}`);
+  const res = await fetch(`${BASE_URL}/pois/enrich?${params}`, {
+    headers: apiHeaders('/pois/enrich'),
+  });
 
   if (res.status === 204 || !res.ok) {
     return null;
@@ -317,7 +325,9 @@ async function fetchAutocomplete(
       lang: language,
     });
 
-    const res = await fetch(`${BASE_URL}/search/nominatim?${params}`);
+    const res = await fetch(`${BASE_URL}/search/nominatim?${params}`, {
+      headers: apiHeaders('/search/nominatim'),
+    });
 
     if (!res.ok) {
       console.warn('[Autocomplete] Backend proxy request failed:', res.status);
@@ -355,7 +365,9 @@ async function fetchNearbyPois(
       lang: language,
       radius: radius.toString(),
     });
-    const res = await fetch(`${BASE_URL}/search/nearby?${params}`);
+    const res = await fetch(`${BASE_URL}/search/nearby?${params}`, {
+      headers: apiHeaders('/search/nearby'),
+    });
     if (!res.ok) return [];
     const results = await res.json();
     return Array.isArray(results) ? results : [];
