@@ -118,3 +118,4 @@ vite.config.*.timestamp*
 !apps/mobile/.env.*
 apps/api/.env*
 .expo/
+apps/mobile/src/app/config/env.local.ts

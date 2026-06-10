@@ -325,8 +325,12 @@ async function fetchAutocomplete(
       lang: language,
     });
 
-    const res = await fetch(`${BASE_URL}/search/nominatim?${params}`, {
-      headers: apiHeaders('/search/nominatim'),
+    const url = `${BASE_URL}/search/nominatim?${params}`;
+    const hdrs = apiHeaders('/search/nominatim');
+    console.log('[Autocomplete] Fetching:', url, 'headers:', JSON.stringify(hdrs));
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: hdrs,
     });
 
     if (!res.ok) {
@@ -336,8 +340,8 @@ async function fetchAutocomplete(
 
     const results = await res.json();
     return Array.isArray(results) ? results : [];
-  } catch (error) {
-    console.error('[Autocomplete] Failed to fetch from backend proxy:', error);
+  } catch (error: any) {
+    console.error('[Autocomplete] Failed to fetch from backend proxy:', error?.message, error?.cause, error);
     return [];
   }
 }

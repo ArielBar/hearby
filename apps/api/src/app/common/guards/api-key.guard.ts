@@ -28,39 +28,29 @@ const MAX_AGE_SECONDS = 300; // 5 minutes
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   private readonly secret: string;
-  private readonly legacyKey: string;
   private readonly logger = new Logger(ApiKeyGuard.name);
 
   constructor(private readonly configService: ConfigService) {
     this.secret =
       this.configService.get<string>('HEARBY_HMAC_SECRET') || '';
-    this.legacyKey =
-      this.configService.get<string>('HEARBY_API_KEY') || '';
   }
 
   canActivate(context: ExecutionContext): boolean {
-    // Skip in development if no secrets are configured
-    if (!this.secret && !this.legacyKey) {
+    // Skip in development if no secret is configured
+    if (!this.secret) {
       return true;
     }
 
     const request = context.switchToHttp().getRequest<Request>();
 
-    // Try HMAC signature first (new secure method)
     const timestamp = request.headers['x-hearby-timestamp'] as string;
     const signature = request.headers['x-hearby-signature'] as string;
 
-    if (timestamp && signature) {
-      return this.verifyHmac(request, timestamp, signature);
+    if (!timestamp || !signature) {
+      throw new UnauthorizedException('Missing authentication headers');
     }
 
-    // Fallback: legacy static API key (for older app versions during migration)
-    const clientKey = request.headers['x-hearby-api-key'] as string;
-    if (this.legacyKey && clientKey === this.legacyKey) {
-      return true;
-    }
-
-    throw new UnauthorizedException('Invalid or missing authentication');
+    return this.verifyHmac(request, timestamp, signature);
   }
 
   private verifyHmac(

@@ -7,9 +7,17 @@
   "targets": {
     "start": {
       "executor": "nx:run-commands",
+      "defaultConfiguration": "development",
       "options": {
-        "command": "npx react-native start",
         "cwd": "apps/mobile"
+      },
+      "configurations": {
+        "development": {
+          "command": "npx react-native start"
+        },
+        "production": {
+          "command": "HEARBY_USE_PROD_API=1 npx react-native start"
+        }
       }
     },
     "run-ios": {
@@ -24,6 +32,9 @@
         },
         "production": {
           "command": "npx react-native run-ios --mode Release"
+        },
+        "dev-prod-api": {
+          "command": "HEARBY_USE_PROD_API=1 npx react-native run-ios"
         }
       }
     },

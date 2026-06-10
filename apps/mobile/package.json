@@ -8,7 +8,6 @@
     "@react-native/metro-config": "*",
     "@react-navigation/native": "*",
     "@react-navigation/native-stack": "*",
-    "crypto-js": "^4.2.0",
     "metro-config": "*",
     "react": "*",
     "react-native": "*",
@@ -22,8 +21,5 @@
     "react-native-svg": "*",
     "react-native-tracking-transparency": "^0.1.2",
     "react-native-tts": "*"
-  },
-  "devDependencies": {
-    "@types/crypto-js": "^4.2.2"
   }
 }
