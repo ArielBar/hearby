@@ -4,18 +4,10 @@ import { Platform, NativeModules } from 'react-native';
  * Environment configuration
  * Uses React Native's built-in __DEV__ flag (true in debug, false in release builds)
  *
- * To test against production API in dev mode:
- *   nx run mobile:run-ios:dev-prod-api
- *   — or —
- *   Create apps/mobile/src/app/config/env.local.ts exporting USE_PROD_API = true
- *
  * DEV_LAN_IP: Your Mac's local network IP for physical device testing.
  * Find it with: ipconfig getifaddr en0
  */
 const DEV_LAN_IP = '192.168.1.192';
-
-// Local override — set USE_PROD_API = true in env.local.ts to hit production API in dev
-import { USE_PROD_API } from './env.local';
 
 function getDevApiHost(): string {
   if (Platform.OS === 'android') {
@@ -40,11 +32,8 @@ function getDevApiHost(): string {
 
 const PROD_API_URL = 'https://hear-by.com/api';
 
-const resolvedApiUrl = PROD_API_URL; // TEMP: force prod API
-console.log('[ENV] API_URL =', resolvedApiUrl);
-
 export const ENV = {
-  API_URL: resolvedApiUrl,
+  API_URL: __DEV__ ? getDevApiHost() : PROD_API_URL,
   ENV_NAME: __DEV__ ? 'development' : 'production',
   IS_DEV: __DEV__,
 } as const;

@@ -90,8 +90,9 @@ import { ENV } from '../config/env';
 import { getSignedHeaders } from '../config/apiAuth';
 const BASE_URL = ENV.API_URL;
 
-/** Generate authenticated headers for a given API path */
+/** Generate authenticated headers — only in production */
 function apiHeaders(path: string): Record<string, string> {
+  if (__DEV__) return {};
   return getSignedHeaders(path);
 }
 
@@ -326,11 +327,8 @@ async function fetchAutocomplete(
     });
 
     const url = `${BASE_URL}/search/nominatim?${params}`;
-    const hdrs = apiHeaders('/search/nominatim');
-    console.log('[Autocomplete] Fetching:', url, 'headers:', JSON.stringify(hdrs));
     const res = await fetch(url, {
-      method: 'GET',
-      headers: hdrs,
+      headers: apiHeaders('/search/nominatim'),
     });
 
     if (!res.ok) {
@@ -340,8 +338,8 @@ async function fetchAutocomplete(
 
     const results = await res.json();
     return Array.isArray(results) ? results : [];
-  } catch (error: any) {
-    console.error('[Autocomplete] Failed to fetch from backend proxy:', error?.message, error?.cause, error);
+  } catch (error) {
+    console.error('[Autocomplete] Failed to fetch from backend proxy:', error);
     return [];
   }
 }
