@@ -92,7 +92,12 @@ const BASE_URL = ENV.API_URL;
 
 /** Generate authenticated headers — only in production */
 function apiHeaders(path: string): Record<string, string> {
-  if (__DEV__) return {};
+  // In development, still send signed headers when the app talks to a non-local API (e.g., production)
+  if (__DEV__) {
+    const host = ENV.API_URL || '';
+    const isLocalHost = host.includes('localhost') || host.includes('10.0.2.2') || host.includes('127.0.0.1') || host.includes('192.168.');
+    if (isLocalHost) return {};
+  }
   return getSignedHeaders(path);
 }
 
