@@ -45,10 +45,18 @@ export class ApiKeyGuard implements CanActivate {
 
     const timestamp = request.headers['x-hearby-timestamp'] as string;
     const signature = request.headers['x-hearby-signature'] as string;
-    const legacyApiKey = (request.headers['x-hearby-api-key'] || request.headers['hearby-api-key']) as string | undefined;
+    const legacyApiKeyRaw = (request.headers['x-hearby-api-key'] || request.headers['hearby-api-key']) as string | undefined;
+
+    const normalizeKey = (v?: string): string | undefined => {
+      if (!v) return undefined;
+      const s = v.trim();
+      return s.replace(/^['"]|['"]$/g, ''); // strip surrounding single/double quotes
+    };
+
+    const legacyApiKey = normalizeKey(legacyApiKeyRaw);
 
     if (!timestamp || !signature) {
-      const staticKey = this.configService.get<string>('HEARBY_API_KEY');
+      const staticKey = normalizeKey(this.configService.get<string>('HEARBY_API_KEY'));
       if (legacyApiKey && staticKey && legacyApiKey === staticKey) {
         // Allow legacy static API key during migration
         return true;
