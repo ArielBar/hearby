@@ -33,7 +33,7 @@ function getDevApiHost(): string {
 const PROD_API_URL = 'https://hear-by.com/api';
 
 export const ENV = {
-  API_URL: __DEV__ ? getDevApiHost() : PROD_API_URL,
+  API_URL: PROD_API_URL,
   ENV_NAME: __DEV__ ? 'development' : 'production',
   IS_DEV: __DEV__,
 } as const;
