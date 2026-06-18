@@ -1,0 +1,8 @@
+What's New in this release:
+
+- Implemented Tap-to-enrich POI workflow for faster content creation.
+- Rolled out AI-generated audio guide improvements: clearer narration and better pauses.
+- Expanded multilingual support to 11+ languages and fixed locale switching bugs.
+- Performance improvements and crash fixes for maps and offline downloads.
+
+Thanks for using HearBy — keep the feedback coming!

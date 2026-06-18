@@ -1,8 +1,12 @@
+const path = require('path');
 const { withNxMetro } = require('@nx/react-native');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
 const defaultConfig = getDefaultConfig(__dirname);
 const { assetExts, sourceExts } = defaultConfig.resolver;
+const workspaceRoot = path.resolve(__dirname, '../..');
+const appNodeModules = path.resolve(__dirname, 'node_modules');
+const workspaceNodeModules = path.resolve(workspaceRoot, 'node_modules');
 
 /**
  * Metro configuration
@@ -21,12 +25,28 @@ const customConfig = {
   },
 };
 
-module.exports = withNxMetro(mergeConfig(defaultConfig, customConfig), {
-  // Change this to true to see debugging info.
-  // Useful if you have issues resolving modules
-  debug: false,
-  // all the file extensions used for imports other than 'ts', 'tsx', 'js', 'jsx', 'json'
-  extensions: [],
-  // Specify folders to watch, in addition to Nx defaults (workspace libraries and node_modules)
-  watchFolders: [],
-});
+module.exports = (async () => {
+  const config = await withNxMetro(mergeConfig(defaultConfig, customConfig), {
+    // Change this to true to see debugging info.
+    // Useful if you have issues resolving modules
+    debug: false,
+    // all the file extensions used for imports other than 'ts', 'tsx', 'js', 'jsx', 'json'
+    extensions: [],
+    // Specify folders to watch, in addition to Nx defaults (workspace libraries and node_modules)
+    watchFolders: [],
+  });
+
+  config.resolver = {
+    ...config.resolver,
+    nodeModulesPaths: [workspaceNodeModules, appNodeModules],
+    disableHierarchicalLookup: true,
+    extraNodeModules: {
+      ...(config.resolver?.extraNodeModules ?? {}),
+      react: path.join(workspaceNodeModules, 'react'),
+      'react-native': path.join(appNodeModules, 'react-native'),
+      scheduler: path.join(workspaceNodeModules, 'scheduler'),
+    },
+  };
+
+  return config;
+})();

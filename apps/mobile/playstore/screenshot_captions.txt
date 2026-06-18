@@ -1,0 +1,9 @@
+Suggested screenshots (phone, portrait) with captions:
+
+1) Home / Explore map view — "Discover nearby points of interest"
+2) Tap-to-enrich POI editor — "Tap to add images, notes & enrich a POI"
+3) AI audio guide playback screen — "Listen to AI-generated audio guides"
+4) Language selector & playback options — "Choose from 11+ languages"
+5) Offline downloads / tour sharing — "Download guides & share tours"
+
+For each screenshot include a short header text and a prominent UI-focused image. Use 2–5 screenshots for phone; add tablet screenshots if you support tablets (landscape recommended).

@@ -119,3 +119,4 @@ vite.config.*.timestamp*
 apps/api/.env*
 .expo/
 apps/mobile/src/app/config/env.local.ts
+apps/mobile/android/keystore.properties

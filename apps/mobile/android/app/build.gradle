@@ -2,6 +2,39 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Load local Android-only overrides (do NOT commit local.properties).
+def localPropertiesFile = rootProject.file("local.properties")
+def localProperties = new Properties()
+if (localPropertiesFile.exists()) {
+    localProperties.load(new FileInputStream(localPropertiesFile))
+}
+
+def reactNativeModulesDir = file("../../../../node_modules/react-native").absolutePath
+def resolvedNodeBinary =
+    localProperties.getProperty("NODE_BINARY") ?:
+    System.getenv("NODE_BINARY") ?:
+    (file("/opt/homebrew/bin/node").canExecute() ? "/opt/homebrew/bin/node" :
+        (file("/usr/local/bin/node").canExecute() ? "/usr/local/bin/node" : "node"))
+
+ext.REACT_NATIVE_NODE_MODULES_DIR = reactNativeModulesDir
+rootProject.ext.REACT_NATIVE_NODE_MODULES_DIR = reactNativeModulesDir
+
+// Force consistent Google Play Services artifact versions to avoid class/interface mismatches
+configurations.all {
+    resolutionStrategy {
+        force (
+            'androidx.core:core:1.15.0',
+            'androidx.core:core-ktx:1.15.0',
+            'com.google.android.gms:play-services-location:21.3.0',
+            'com.google.android.gms:play-services-basement:18.9.0',
+            'com.google.android.gms:play-services-base:18.5.0',
+            'com.google.android.gms:play-services-tasks:18.2.0',
+            'com.google.android.gms:play-services-maps:19.1.0',
+            'com.google.android.gms:play-services-ads:23.6.0'
+        )
+    }
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -25,7 +58,7 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = [resolvedNodeBinary]
     //
     //   The command to run when bundling. By default is 'bundle'
     // bundleCommand = "ram-bundle"
@@ -37,7 +70,7 @@ react {
     // bundleAssetName = "MyApplication.android.bundle"
     //
     //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
-    entryFile = file("../../src/main.tsx")
+    entryFile = file("../../index.js")
     //
     //   A list of extra flags to pass to the 'bundle' commands.
     //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
@@ -72,18 +105,22 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+def MAPS_API_KEY = localProperties.getProperty("MAPS_API_KEY", "")
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.mobile"
+    namespace "com.hearby.mobile"
     defaultConfig {
-        applicationId "com.mobile"
+        applicationId "com.hearby.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.0.1"
+        // Provide Google Maps API key via manifest placeholders (loaded from local.properties)
+        manifestPlaceholders = [ GOOGLE_MAPS_KEY: MAPS_API_KEY ]
     }
     signingConfigs {
         debug {
@@ -92,15 +129,24 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            def keystorePropertiesFile = rootProject.file("keystore.properties")
+            def keystoreProperties = new Properties()
+            if (keystorePropertiesFile.exists()) {
+                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+            }
+            storeFile file(keystoreProperties['storeFile'] ?: 'hearby-release.keystore')
+            storePassword keystoreProperties['storePassword'] ?: ''
+            keyAlias keystoreProperties['keyAlias'] ?: ''
+            keyPassword keystoreProperties['keyPassword'] ?: ''
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
@@ -108,6 +154,9 @@ android {
 }
 
 dependencies {
+    // Location APIs required by RN fused location module
+    implementation 'com.google.android.gms:play-services-location:21.3.0'
+
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

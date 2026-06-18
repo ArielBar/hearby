@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <defs>
+    <linearGradient id="g2" x1="0" x2="1">
+      <stop offset="0%" stop-color="#8D65B2" />
+      <stop offset="100%" stop-color="#B79ED4" />
+    </linearGradient>
+    <style>
+      .title{font:700 36px 'Arial', sans-serif; fill:#FFFFFF}
+      .caption{font:400 22px 'Arial', sans-serif; fill:#FFFFFF}
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#FFFFFF"/>
+  <rect x="40" y="40" width="1200" height="720" rx="20" fill="url(#g2)" />
+  <text x="80" y="110" class="title">Create & Share Tours</text>
+  <text x="80" y="150" class="caption">Curate and share guided tours</text>
+  <g transform="translate(1080,20)">
+    <image href="data:image/png;base64," width="120" height="120" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+</svg>

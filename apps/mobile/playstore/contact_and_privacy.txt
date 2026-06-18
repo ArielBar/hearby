@@ -1,0 +1,9 @@
+Store contact and privacy placeholders:
+
+Contact email: support@hearby.example.com  (replace with real support email)
+Website: https://hearby.example.com  (replace with real site)
+Privacy policy URL: https://hearby.example.com/privacy  (required for Play Store if app uses accounts, location, ads)
+
+Category suggestion: Travel & Local or Education (choose one in Play Console)
+
+If you want, provide the real email and privacy URL and I’ll update files and prepare the final Play Console copy.

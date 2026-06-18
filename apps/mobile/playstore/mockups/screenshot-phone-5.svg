@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="g1" x1="0" x2="1">
+      <stop offset="0%" stop-color="#453266" />
+      <stop offset="100%" stop-color="#8D65B2" />
+    </linearGradient>
+    <style>
+      .title{font:700 48px/1.1 'Arial', sans-serif; fill:#FFFFFF}
+      .caption{font:400 28px/1.2 'Arial', sans-serif; fill:#FFFFFF}
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#FFFFFF"/>
+  <rect x="80" y="160" width="920" height="1500" rx="40" fill="url(#g1)" />
+  <g transform="translate(160,260)">
+    <rect width="760" height="1060" rx="18" fill="#83C5BE" opacity="0.12"/>
+    <text x="24" y="64" class="title">Download guides & share tours</text>
+    <text x="24" y="110" class="caption">Download guides & share tours</text>
+  </g>
+  <g transform="translate(840,56)"><circle cx="80" cy="80" r="80" fill="" /><text x="80" y="95" text-anchor="middle" font-size="48" fill="">HB</text></g>
+  <rect x="0" y="1770" width="1080" height="150" fill="#FFFFFF" />
+  <text x="80" y="1860" font-size="28" fill="#222">Download guides & share tours</text>
+</svg>

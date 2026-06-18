@@ -1,0 +1,24 @@
+Play Store asset guidelines and capture commands:
+
+Images required:
+- App icon: 512x512 PNG (no alpha recommended)
+- Feature graphic: 1024x500 JPG/PNG (used on Play store header)
+- Phone screenshots: recommended 1080x1920 (portrait). Min 2, max 8.
+- Tablet screenshots: 1280x800 or higher (landscape recommended)
+- Promo video (optional): YouTube URL
+
+Recommended file types: PNG or JPEG. Max file size per image: 8MB.
+
+Commands to capture screenshots from a connected device/emulator:
+- adb devices
+- adb shell screencap -p /sdcard/screen.png
+- adb pull /sdcard/screen.png ./screen.png
+
+Use Android Studio Device File Explorer or the emulator "Take Screenshot" tool for higher-quality captures.
+
+Tips:
+- Use a clean app state with tour content visible.
+- Remove debugging overlays and status bar clutter.
+- Add cropped device mockups if you want polished marketing images.
+
+If you want placeholder images created now, say so and specify phone/tablet counts.

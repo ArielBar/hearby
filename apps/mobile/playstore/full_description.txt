@@ -1,0 +1,10 @@
+Discover places with rich, spoken experiences using HearBy. Tap on points of interest to enrich them with images, notes and AI-generated audio guides that narrate history, directions and highlights. Built-in multilingual support lets users listen in 11+ languages. Use offline downloads for on-the-go travel and share custom guided tours with friends.
+
+Key features:
+- Tap-to-enrich POI workflow: add context and media to locations instantly.
+- AI-generated audio guides: natural-sounding narration created on demand.
+- Multilingual support: UI and audio in 11+ languages.
+- Offline mode: download guides and maps for use without network.
+- Shareable tours: export and share curated experiences.
+
+HearBy is ideal for travelers, tour guides, museums and city explorers. Start a guided walk — HearBy speaks for you.

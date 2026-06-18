@@ -3,23 +3,29 @@
   "version": "0.0.1",
   "private": true,
   "dependencies": {
-    "@react-native-async-storage/async-storage": "*",
-    "@react-native-clipboard/clipboard": "*",
-    "@react-native/metro-config": "*",
-    "@react-navigation/native": "*",
-    "@react-navigation/native-stack": "*",
-    "metro-config": "*",
-    "react": "*",
-    "react-native": "*",
-    "react-native-geocoding": "*",
-    "react-native-geolocation-service": "*",
-    "react-native-google-mobile-ads": "*",
-    "react-native-maps": "*",
-    "react-native-purchases": "*",
-    "react-native-safe-area-context": "*",
-    "react-native-screens": "*",
-    "react-native-svg": "*",
+    "@react-native-async-storage/async-storage": "^3.1.0",
+    "@react-native-clipboard/clipboard": "^1.16.3",
+    "@react-native/metro-config": "~0.79.3",
+    "@react-navigation/native": "^7.2.4",
+    "@react-navigation/native-stack": "^7.15.1",
+    "metro-config": "~0.82.4",
+    "react": "19.0.0",
+    "react-native": "~0.79.3",
+    "react-native-geocoding": "^0.5.0",
+    "react-native-geolocation-service": "^5.3.1",
+    "react-native-google-mobile-ads": "^14.11.0",
+    "react-native-maps": "^1.26.0",
+    "react-native-purchases": "^10.2.2",
+    "react-native-safe-area-context": "^5.8.0",
+    "react-native-screens": "4.10.0",
+    "react-native-svg": "~15.11.2",
     "react-native-tracking-transparency": "^0.1.2",
-    "react-native-tts": "*"
+    "react-native-tts": "^4.1.1"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  },
+  "scripts": {
+    "postinstall": "patch-package"
   }
 }

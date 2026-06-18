@@ -25,6 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Tts from 'react-native-tts';
 import MapView, { Marker } from 'react-native-maps';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +40,7 @@ import {
   AdEventType,
   TestIds,
 } from 'react-native-google-mobile-ads';
+import { requestLocationPermission } from '../services/locationPermission';
 import {
   X,
   Search,
@@ -60,7 +62,92 @@ const rewardedAd = FeatureFlags.ENABLE_ADS
     })
   : null;
 const { HearbyTts } = NativeModules;
-const ttsEmitter = new NativeEventEmitter(HearbyTts);
+// NativeEventEmitter requires a non-null native module on Android — guard for platforms where the native module isn't implemented (e.g., Android)
+const ttsEmitter = HearbyTts ? new NativeEventEmitter(HearbyTts) : null;
+
+// Lightweight cross-platform TTS wrappers: prefer native HearbyTts (iOS), fall back to react-native-tts on other platforms.
+function ttsStop() {
+  try {
+    if (HearbyTts && typeof HearbyTts.stop === 'function') {
+      return HearbyTts.stop();
+    }
+    if (Tts && typeof Tts.stop === 'function') {
+      return Tts.stop();
+    }
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsStop error', e);
+  }
+}
+function ttsSetLanguage(lang: string) {
+  try {
+    if (HearbyTts && typeof HearbyTts.setLanguage === 'function') {
+      return HearbyTts.setLanguage(lang);
+    }
+    if (Tts && typeof Tts.setDefaultLanguage === 'function') {
+      return Tts.setDefaultLanguage(lang);
+    }
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsSetLanguage error', e);
+  }
+}
+function ttsActivateAudioSession() {
+  try {
+    if (HearbyTts && typeof HearbyTts.activateAudioSession === 'function') {
+      return HearbyTts.activateAudioSession();
+    }
+    // No-op fallback for JS TTS
+    return null;
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsActivateAudioSession error', e);
+  }
+}
+function ttsPlayAudioFromURL(url: string) {
+  try {
+    if (HearbyTts && typeof HearbyTts.playAudioFromURL === 'function') {
+      return HearbyTts.playAudioFromURL(url);
+    }
+    // No direct streaming API in react-native-tts; as fallback, download/play via native Audio package or skip
+    console.warn('[NearbyPoisScreen] playAudioFromURL fallback: not implemented for JS TTS');
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsPlayAudioFromURL error', e);
+  }
+}
+function ttsSpeak(text: string) {
+  try {
+    if (HearbyTts && typeof HearbyTts.speak === 'function') {
+      return HearbyTts.speak(text);
+    }
+    if (Tts && typeof Tts.speak === 'function') {
+      return Tts.speak(text);
+    }
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsSpeak error', e);
+  }
+}
+function ttsResume() {
+  try {
+    if (HearbyTts && typeof HearbyTts.resume === 'function') {
+      return HearbyTts.resume();
+    }
+    if (Tts && typeof Tts.resume === 'function') {
+      return Tts.resume();
+    }
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsResume error', e);
+  }
+}
+function ttsPause() {
+  try {
+    if (HearbyTts && typeof HearbyTts.pause === 'function') {
+      return HearbyTts.pause();
+    }
+    if (Tts && typeof Tts.pause === 'function') {
+      return Tts.pause();
+    }
+  } catch (e) {
+    console.warn('[NearbyPoisScreen] ttsPause error', e);
+  }
+}
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.55;
 
@@ -228,19 +315,72 @@ const LANG_FLAGS: Record<string, string> = {
 };
 
 /**
+ * Safe wrapper around Settings.get that returns null when unavailable.
+ */
+function safeSettingsGet(key: string): any {
+  try {
+    if (Settings && typeof Settings.get === 'function') return Settings.get(key);
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+function getAndroidPreferredLocales(): string[] {
+  try {
+    const preferredLocales = NativeModules.DeviceLocales?.preferredLocales;
+    if (Array.isArray(preferredLocales) && preferredLocales.length > 0) {
+      return preferredLocales.map((locale) => String(locale));
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    const localeIdentifier = I18nManager.getConstants().localeIdentifier;
+    if (localeIdentifier) {
+      return [String(localeIdentifier)];
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return devicePreferredLanguagesFallback();
+}
+
+/**
+ * Fallback to browser/JS locale when Settings API isn't available.
+ */
+function devicePreferredLanguagesFallback(): string[] {
+  try {
+    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale || 'en';
+      return [locale];
+    }
+  } catch (e) {
+    // ignore
+  }
+  return ['en'];
+}
+
+/**
  * Get preferred languages from device settings (iOS: AppleLanguages)
  * Returns array of {code, label} based on the user's language preferences
  */
 function getDevicePreferredLanguages(): { code: string; label: string }[] {
   try {
-    const appleLanguages: string[] | undefined = Settings.get(
-      'AppleLanguages',
-    ) as string[] | undefined;
+    const rawLanguages =
+      Platform.OS === 'ios'
+        ? ((safeSettingsGet('AppleLanguages') as string[] | undefined) ?? [])
+        : getAndroidPreferredLocales();
 
-    if (appleLanguages && appleLanguages.length > 0) {
+    const normalizedLanguages =
+      rawLanguages.length > 0 ? rawLanguages : devicePreferredLanguagesFallback();
+
+    if (normalizedLanguages.length > 0) {
       const seen = new Set<string>();
-      return appleLanguages
-        .map((locale) => locale.split('_')[0].split('-')[0].toLowerCase())
+      return normalizedLanguages
+        .map((locale) => String(locale).split('_')[0].split('-')[0].toLowerCase())
         .filter((code) => {
           if (seen.has(code)) return false;
           seen.add(code);
@@ -252,7 +392,7 @@ function getDevicePreferredLanguages(): { code: string; label: string }[] {
         }));
     }
   } catch {
-    // Settings API not available
+    // Settings API not available or parsing failed
   }
   // Fallback
   return [
@@ -278,6 +418,13 @@ interface Coordinate {
   latitude: number;
   longitude: number;
 }
+
+const DEFAULT_MAP_REGION = {
+  latitude: 32.0853,
+  longitude: 34.7818,
+  latitudeDelta: 0.02,
+  longitudeDelta: 0.02,
+};
 
 interface AutocompleteResult {
   title: string;
@@ -389,6 +536,7 @@ export function NearbyPoisScreen() {
   const mapRef = useRef<MapView>(null);
   const { isPremium } = usePremium();
   const [showPaywall, setShowPaywall] = useState(false);
+  const [mapInitialRegion, setMapInitialRegion] = useState(DEFAULT_MAP_REGION);
 
   // Detect device language once on mount (for Nominatim accept-language header)
   const [deviceLanguage, setDeviceLanguage] = useState(() =>
@@ -450,6 +598,151 @@ export function NearbyPoisScreen() {
   const [nearbyPois, setNearbyPois] = useState<NearbyPoi[]>([]);
   const [isLoadingNearby, setIsLoadingNearby] = useState(false);
   const [nearbySearchDone, setNearbySearchDone] = useState(false);
+
+  const buildFocusedRegion = (latitude: number, longitude: number) => ({
+    latitude,
+    longitude,
+    latitudeDelta: 0.005,
+    longitudeDelta: 0.005,
+  });
+
+  const centerMapOnCoordinate = (
+    coordinate: Coordinate,
+    animated: boolean = true,
+  ) => {
+    const region = buildFocusedRegion(
+      coordinate.latitude,
+      coordinate.longitude,
+    );
+    setMapInitialRegion(region);
+
+    if (animated) {
+      mapRef.current?.animateToRegion(region, 500);
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const centerMapOnStartup = async () => {
+      const hasPermission = await requestLocationPermission();
+      if (!isMounted || !hasPermission) return;
+
+      Geolocation.getCurrentPosition(
+        (position) => {
+          if (!isMounted) return;
+
+          centerMapOnCoordinate(
+            {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            },
+            true,
+          );
+        },
+        (error) => {
+          if (!isMounted) return;
+          console.warn('[Location] Initial GPS error:', error.message);
+        },
+        {
+          enableHighAccuracy: Platform.OS === 'ios',
+          timeout: Platform.OS === 'ios' ? 5000 : 10000,
+          maximumAge: Platform.OS === 'ios' ? 10000 : 30000,
+        },
+      );
+    };
+
+    centerMapOnStartup();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const fetchNearbyFromMapCenter = () => {
+    mapRef.current?.getCamera().then((camera) => {
+      if (camera?.center) {
+        fetchNearbyPois(
+          camera.center.latitude,
+          camera.center.longitude,
+          deviceLanguage,
+        ).then((results) => {
+          setNearbyPois(results);
+          setIsLoadingNearby(false);
+          setNearbySearchDone(true);
+        });
+      } else {
+        setIsLoadingNearby(false);
+        setNearbySearchDone(true);
+      }
+    });
+  };
+
+  const handleCenterOnCurrentLocation = async () => {
+    const hasPermission = await requestLocationPermission();
+    if (!hasPermission) {
+      console.warn('[Location] Android GPS error: Location permission not granted.');
+      return;
+    }
+
+    Geolocation.getCurrentPosition(
+      (position) => {
+        centerMapOnCoordinate({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      (error) => console.warn('[Location] Android GPS error:', error.message),
+      {
+        enableHighAccuracy: Platform.OS === 'ios',
+        timeout: Platform.OS === 'ios' ? 5000 : 10000,
+        maximumAge: Platform.OS === 'ios' ? 10000 : 30000,
+      },
+    );
+  };
+
+  const handleNearbyExplorationPress = async () => {
+    if (isLoadingNearby) return;
+
+    setIsLoadingNearby(true);
+    setNearbySearchDone(false);
+    setNearbyPois([]);
+
+    const hasPermission = await requestLocationPermission();
+    if (!hasPermission) {
+      console.warn(
+        '[NearbyPoisScreen] Location permission not granted, falling back to map center.',
+      );
+      fetchNearbyFromMapCenter();
+      return;
+    }
+
+    Geolocation.getCurrentPosition(
+      (position) => {
+        fetchNearbyPois(
+          position.coords.latitude,
+          position.coords.longitude,
+          deviceLanguage,
+        ).then((results) => {
+          setNearbyPois(results);
+          setIsLoadingNearby(false);
+          setNearbySearchDone(true);
+        });
+      },
+      (error) => {
+        console.warn(
+          '[NearbyPoisScreen] GPS error, falling back to map center:',
+          error.message,
+        );
+        fetchNearbyFromMapCenter();
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 10000,
+      },
+    );
+  };
 
   // Debounce search input (500ms) to avoid Nominatim 429 rate limits
   useEffect(() => {
@@ -606,35 +899,96 @@ export function NearbyPoisScreen() {
 
   // TTS initialization and event listeners
   useEffect(() => {
-    HearbyTts.setLanguage('he-IL');
-    HearbyTts.activateAudioSession();
+    // Prefer native HearbyTts if available (iOS). On platforms where it's missing (Android), fall back to react-native-tts.
+    const initTts = async () => {
+      try {
+        if (HearbyTts && typeof HearbyTts.setLanguage === 'function') {
+          // Native module available
+          ttsSetLanguage('he-IL');
+          ttsActivateAudioSession();
+        } else {
+          // Fallback to JS TTS library
+          try {
+            await Tts.setDefaultLanguage && Tts.setDefaultLanguage('he-IL');
+          } catch (e) {
+            console.warn('[NearbyPoisScreen] TTS fallback failed to set language', e);
+          }
+        }
+      } catch (e) {
+        console.warn('[NearbyPoisScreen] TTS init error', e);
+      }
+    };
 
-    const finishSub = ttsEmitter.addListener('tts-finish', () => {
-      setIsPlaying(false);
-      setIsPaused(false);
-    });
-    const cancelSub = ttsEmitter.addListener('tts-cancel', () => {
-      setIsPlaying(false);
-      setIsPaused(false);
-    });
-    const pauseSub = ttsEmitter.addListener('tts-pause', () => {
-      setIsPaused(true);
-    });
-    const resumeSub = ttsEmitter.addListener('tts-resume', () => {
-      setIsPaused(false);
-    });
-    const errorSub = ttsEmitter.addListener('tts-error', () => {
-      setIsPlaying(false);
-      setIsPaused(false);
-    });
+    initTts();
+
+    // Subscribe to events from native module if present, otherwise use react-native-tts listeners
+    let finishSub: any = null;
+    let cancelSub: any = null;
+    let pauseSub: any = null;
+    let resumeSub: any = null;
+    let errorSub: any = null;
+
+    if (ttsEmitter) {
+      finishSub = ttsEmitter.addListener('tts-finish', () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      });
+      cancelSub = ttsEmitter.addListener('tts-cancel', () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      });
+      pauseSub = ttsEmitter.addListener('tts-pause', () => {
+        setIsPaused(true);
+      });
+      resumeSub = ttsEmitter.addListener('tts-resume', () => {
+        setIsPaused(false);
+      });
+      errorSub = ttsEmitter.addListener('tts-error', () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      });
+    } else if (Tts && Tts.addEventListener) {
+      // react-native-tts event mapping
+      finishSub = Tts.addEventListener('tts-finish', () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      });
+      // react-native-tts uses 'tts-cancel' and 'tts-start' in some versions; add best-effort handlers
+      cancelSub = Tts.addEventListener('tts-cancel', () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      });
+      pauseSub = Tts.addEventListener('tts-pause', () => {
+        setIsPaused(true);
+      });
+      resumeSub = Tts.addEventListener('tts-resume', () => {
+        setIsPaused(false);
+      });
+      errorSub = Tts.addEventListener('tts-error', () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      });
+    }
 
     return () => {
-      HearbyTts.stop();
-      finishSub.remove();
-      cancelSub.remove();
-      pauseSub.remove();
-      resumeSub.remove();
-      errorSub.remove();
+      // Stop playback via native module or fallback
+      try {
+        if (HearbyTts && typeof HearbyTts.stop === 'function') HearbyTts.stop();
+        else if (Tts && typeof Tts.stop === 'function') Tts.stop();
+      } catch (e) {
+        console.warn('[NearbyPoisScreen] Error stopping TTS on cleanup', e);
+      }
+
+      // Remove subscriptions
+      try {
+        finishSub && (typeof finishSub.remove === 'function' ? finishSub.remove() : (finishSub.removeEventListener && finishSub.removeEventListener()));
+        cancelSub && (typeof cancelSub.remove === 'function' ? cancelSub.remove() : (cancelSub.removeEventListener && cancelSub.removeEventListener()));
+        pauseSub && (typeof pauseSub.remove === 'function' ? pauseSub.remove() : (pauseSub.removeEventListener && pauseSub.removeEventListener()));
+        resumeSub && (typeof resumeSub.remove === 'function' ? resumeSub.remove() : (resumeSub.removeEventListener && resumeSub.removeEventListener()));
+        errorSub && (typeof errorSub.remove === 'function' ? errorSub.remove() : (errorSub.removeEventListener && errorSub.removeEventListener()));
+      } catch (e) {
+        console.warn('[NearbyPoisScreen] Error removing TTS listeners', e);
+      }
     };
   }, []);
 
@@ -650,7 +1004,7 @@ export function NearbyPoisScreen() {
       if (selectedCoordinate) {
         setSelectedCoordinate(null);
         setShowPoiModal(false);
-        HearbyTts.stop();
+        ttsStop();
         setIsPlaying(false);
         setIsPaused(false);
       }
@@ -697,7 +1051,7 @@ export function NearbyPoisScreen() {
     };
 
     // Stop any current playback
-    HearbyTts.stop();
+    ttsStop();
     setIsPlaying(false);
     setIsPaused(false);
 
@@ -750,7 +1104,7 @@ export function NearbyPoisScreen() {
     setSelectedCoordinate(null);
     setTempMarkerCoords(null);
     setShowPoiModal(false);
-    HearbyTts.stop();
+    ttsStop();
     setIsPlaying(false);
     setIsPaused(false);
   }, []);
@@ -766,14 +1120,14 @@ export function NearbyPoisScreen() {
         lang: deviceLanguage,
       });
       const audioUrl = `${BASE_URL}/pois/audio?${params}`;
-      HearbyTts.playAudioFromURL(audioUrl);
+      ttsPlayAudioFromURL(audioUrl);
     } else {
       // On-device Siri-style TTS
       const hebrewPattern = /[\u0590-\u05FF]/;
       const hasHebrew = hebrewPattern.test(poiData.masterScript);
       const lang = hasHebrew ? 'he-IL' : 'en-US';
-      HearbyTts.setLanguage(lang);
-      HearbyTts.speak(poiData.masterScript);
+      ttsSetLanguage(lang);
+      ttsSpeak(poiData.masterScript);
     }
     setIsPlaying(true);
     setIsPaused(false);
@@ -783,11 +1137,16 @@ export function NearbyPoisScreen() {
     if (!poiData?.masterScript) return;
 
     if (isPlaying) {
-      // Toggle pause/resume on currently playing audio
       if (isPaused) {
-        HearbyTts.resume();
+        ttsResume();
+        setIsPaused(false);
+      } else if (HearbyTts && typeof HearbyTts.pause === 'function') {
+        ttsPause();
+        setIsPaused(true);
       } else {
-        HearbyTts.pause();
+        ttsStop();
+        setIsPlaying(false);
+        setIsPaused(false);
       }
     } else {
       // Ads disabled or premium — play immediately
@@ -812,12 +1171,7 @@ export function NearbyPoisScreen() {
       <MapView
         ref={mapRef}
         style={styles.map}
-        initialRegion={{
-          latitude: 32.0853, // Tel Aviv
-          longitude: 34.7818,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        }}
+        initialRegion={mapInitialRegion}
         showsUserLocation
         showsPointsOfInterest
         showsCompass
@@ -844,27 +1198,7 @@ export function NearbyPoisScreen() {
       <TouchableOpacity
         style={[styles.myLocationBtn, { top: insets.top + 12 }]}
         activeOpacity={0.7}
-        onPress={async () => {
-          // Request permission first (iOS needs explicit authorization)
-          if (Platform.OS === 'ios') {
-            Geolocation.requestAuthorization('whenInUse');
-          }
-          Geolocation.getCurrentPosition(
-            (position) => {
-              mapRef.current?.animateToRegion(
-                {
-                  latitude: position.coords.latitude,
-                  longitude: position.coords.longitude,
-                  latitudeDelta: 0.005,
-                  longitudeDelta: 0.005,
-                },
-                500,
-              );
-            },
-            (error) => console.warn('[Location] Error:', error.message),
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 },
-          );
-        }}
+        onPress={handleCenterOnCurrentLocation}
       >
         <Globe size={24} color={ICON_COLOR} />
       </TouchableOpacity>
@@ -873,7 +1207,7 @@ export function NearbyPoisScreen() {
       <Animated.View
         style={[
           styles.searchPanel,
-          { maxHeight: isPanelCollapsed ? 36 : PANEL_MAX_HEIGHT },
+          { height: isPanelCollapsed ? 36 : PANEL_MAX_HEIGHT },
           keyboardHeight > 0 && { bottom: keyboardHeight },
         ]}
       >
@@ -984,51 +1318,7 @@ export function NearbyPoisScreen() {
                   <TouchableOpacity
                     style={[styles.categoryRow, dirStyles.row]}
                     activeOpacity={0.7}
-                    onPress={() => {
-                      setIsLoadingNearby(true);
-                      setNearbySearchDone(false);
-                      setNearbyPois([]);
-                      Geolocation.getCurrentPosition(
-                        (position) => {
-                          fetchNearbyPois(
-                            position.coords.latitude,
-                            position.coords.longitude,
-                            deviceLanguage,
-                          ).then((results) => {
-                            setNearbyPois(results);
-                            setIsLoadingNearby(false);
-                            setNearbySearchDone(true);
-                          });
-                        },
-                        (error) => {
-                          console.warn(
-                            '[NearbyPoisScreen] GPS error, falling back to map center:',
-                            error.message,
-                          );
-                          mapRef.current?.getCamera().then((camera) => {
-                            if (camera?.center) {
-                              fetchNearbyPois(
-                                camera.center.latitude,
-                                camera.center.longitude,
-                                deviceLanguage,
-                              ).then((results) => {
-                                setNearbyPois(results);
-                                setIsLoadingNearby(false);
-                                setNearbySearchDone(true);
-                              });
-                            } else {
-                              setIsLoadingNearby(false);
-                              setNearbySearchDone(true);
-                            }
-                          });
-                        },
-                        {
-                          enableHighAccuracy: true,
-                          timeout: 5000,
-                          maximumAge: 10000,
-                        },
-                      );
-                    }}
+                    onPress={handleNearbyExplorationPress}
                   >
                     <View style={styles.categoryIcon}>
                       <MapPin size={24} color={ICON_COLOR} />

@@ -524,11 +524,13 @@ The first sentence must paint a picture the listener can experience from their e
   ): void {
     if (!usage) return;
 
-    const pricing = MODEL_PRICING[model];
-    if (!pricing) {
-      this.logger.warn(`No pricing data for model "${model}"`);
-      return;
-    }
+    // Default to gpt-4o-mini if the model is unrecognized to prevent calculation errors
+    const safeModelKey = MODEL_PRICING[model] ? model : 'gpt-4o-mini';
+    const pricing = MODEL_PRICING[safeModelKey];
+    
+    if (!pricing) return; // Final safety check
+
+    this.logger.debug(`Tracking usage for model: ${safeModelKey} (context: ${context || 'none'})`);
 
     const inputCost = (usage.prompt_tokens / 1_000_000) * pricing.input;
     const outputCost = (usage.completion_tokens / 1_000_000) * pricing.output;

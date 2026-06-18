@@ -1,0 +1,92 @@
+diff --git a/node_modules/react-native/Libraries/Core/setUpReactDevTools.js b/node_modules/react-native/Libraries/Core/setUpReactDevTools.js
+index 285ef93..8b21fdb 100644
+--- a/node_modules/react-native/Libraries/Core/setUpReactDevTools.js
++++ b/node_modules/react-native/Libraries/Core/setUpReactDevTools.js
+@@ -119,6 +119,8 @@ if (__DEV__) {
+ 
+   let isWebSocketOpen = false;
+   let ws = null;
++  const globalWindow =
++    typeof window !== 'undefined' ? window : globalThis;
+   function connectToWSBasedReactDevToolsFrontend() {
+     if (ws !== null && isWebSocketOpen) {
+       // If the DevTools backend is already connected, don't recreate the WebSocket.
+@@ -130,7 +132,7 @@ if (__DEV__) {
+ 
+     // not when debugging in chrome
+     // TODO(t12832058) This check is broken
+-    if (!window.document) {
++    if (!globalWindow.document) {
+       const AppState = require('../AppState/AppState').default;
+       const getDevServer = require('./Devtools/getDevServer').default;
+ 
+@@ -154,8 +156,8 @@ if (__DEV__) {
+       const port =
+         // $FlowFixMe[prop-missing]
+         // $FlowFixMe[incompatible-use]
+-        window.__REACT_DEVTOOLS_PORT__ != null
+-          ? window.__REACT_DEVTOOLS_PORT__
++        globalWindow.__REACT_DEVTOOLS_PORT__ != null
++          ? globalWindow.__REACT_DEVTOOLS_PORT__
+           : 8097;
+ 
+       const WebSocket = require('../WebSocket/WebSocket').default;
+diff --git a/node_modules/react-native/Libraries/Debugging/DebuggingOverlayRegistry.js b/node_modules/react-native/Libraries/Debugging/DebuggingOverlayRegistry.js
+index e4826f2..894da5a 100644
+--- a/node_modules/react-native/Libraries/Debugging/DebuggingOverlayRegistry.js
++++ b/node_modules/react-native/Libraries/Debugging/DebuggingOverlayRegistry.js
+@@ -33,10 +33,13 @@ import {
+ } from '../ReactNative/RendererProxy';
+ import processColor from '../StyleSheet/processColor';
+ 
++const globalWindow =
++  typeof window !== 'undefined' ? window : globalThis;
++
+ // TODO(T171193075): __REACT_DEVTOOLS_GLOBAL_HOOK__ is always injected in dev-bundles,
+ // but it is not mocked in some Jest tests. We should update Jest tests setup, so it would be the same as expected testing environment.
+ const reactDevToolsHook: ?ReactDevToolsGlobalHook =
+-  window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
++  globalWindow.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+ 
+ export type DebuggingOverlayRegistrySubscriberProtocol = {
+   rootViewRef: AppContainerRootViewRef,
+diff --git a/node_modules/react-native/Libraries/ReactNative/AppContainer-dev.js b/node_modules/react-native/Libraries/ReactNative/AppContainer-dev.js
+index 9b74859..1043fe3 100644
+--- a/node_modules/react-native/Libraries/ReactNative/AppContainer-dev.js
++++ b/node_modules/react-native/Libraries/ReactNative/AppContainer-dev.js
+@@ -27,8 +27,11 @@ import * as React from 'react';
+ 
+ const {useEffect, useState, useCallback} = React;
+ 
++const globalWindow =
++  typeof window !== 'undefined' ? window : globalThis;
++
+ const reactDevToolsHook: ReactDevToolsGlobalHook =
+-  window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
++  globalWindow.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+ 
+ // Required for React DevTools to view / edit React Native styles in Flipper.
+ // Flipper doesn't inject these values when initializing DevTools.
+diff --git a/node_modules/react-native/src/private/inspector/getInspectorDataForViewAtPoint.js b/node_modules/react-native/src/private/inspector/getInspectorDataForViewAtPoint.js
+index d356783..0fb5136 100644
+--- a/node_modules/react-native/src/private/inspector/getInspectorDataForViewAtPoint.js
++++ b/node_modules/react-native/src/private/inspector/getInspectorDataForViewAtPoint.js
+@@ -26,14 +26,16 @@ export type ReactRenderer = {
+ };
+ type AttachedRendererEventPayload = {id: number, renderer: ReactRenderer};
+ 
+-const reactDevToolsHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
++const globalWindow =
++  typeof window !== 'undefined' ? window : globalThis;
++const reactDevToolsHook = globalWindow.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+ invariant(
+   Boolean(reactDevToolsHook),
+   'getInspectorDataForViewAtPoint should not be used if React DevTools hook is not injected',
+ );
+ 
+ const renderers: Array<ReactRenderer> = Array.from(
+-  window.__REACT_DEVTOOLS_GLOBAL_HOOK__.renderers.values(),
++  globalWindow.__REACT_DEVTOOLS_GLOBAL_HOOK__.renderers.values(),
+ );
+ 
+ const appendRenderer = ({renderer}: AttachedRendererEventPayload) =>

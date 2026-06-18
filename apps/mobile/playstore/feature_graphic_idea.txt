@@ -1,0 +1,9 @@
+Feature graphic idea (copy & visual directions):
+
+Headline: "HearBy — Your personal audio guide"
+Subtitle: "Tap, listen, explore"
+Visual: Wide 1024x500 graphic showing a city map on the left, a phone mockup in the center playing audio, and subtle location pins on the right. Use brand colors and a clear call-to-action button: "Start exploring". Keep typography large and legible on mobile and desktop views.
+
+Colors: use app primary color for CTA, neutral background, and 2–3 accent colors for pins.
+
+Notes: Provide a 16:9 crop-safe area in the center for Play store thumbnails.

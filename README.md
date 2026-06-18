@@ -1,5 +1,35 @@
 # Hearby
 
+## Android Studio
+
+Open `apps/mobile/android` in Android Studio.
+
+The Android app is pinned to the same React Native 0.79 toolchain used by the repository:
+
+- Android Gradle Plugin `8.8.2`
+- Kotlin `2.1.0`
+- Gradle wrapper `8.13`
+- Android SDK / target SDK `35`
+
+Install dependencies before syncing the Android project:
+
+```sh
+npm install
+cd apps/mobile && npm install
+```
+
+If you need Google Maps on Android, add `MAPS_API_KEY` to `apps/mobile/android/local.properties`:
+
+```properties
+MAPS_API_KEY=your_key_here
+```
+
+If Android Studio still cannot find Node because it is installed in a custom location, also set:
+
+```properties
+NODE_BINARY=/absolute/path/to/node
+```
+
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 
 ✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
